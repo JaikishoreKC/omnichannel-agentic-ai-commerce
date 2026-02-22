@@ -1,0 +1,111 @@
+# System Architecture Specification
+
+## Overview
+
+This document defines the high-level architecture for an omnichannel agentic commerce platform that provides personalized shopping assistance across multiple communication channels.
+
+## Architectural Zones
+
+### 1. Client Layer (Presentation Zone)
+- **Web Application**: Responsive SPA built with modern JavaScript framework
+- **Mobile Applications**: Native iOS/Android apps (future phase)
+- **Channel Adapters**: WebSocket handlers for real-time communication
+- **Session Manager**: Client-side state management for user sessions
+
+### 2. API Gateway Layer (Orchestration Zone)
+- **REST Endpoints**: Standard CRUD operations for products, orders, cart
+- **WebSocket Server**: Real-time bidirectional communication
+- **Authentication Middleware**: JWT-based identity verification
+- **Rate Limiting**: Protection against abuse and DoS
+
+### 3. Agent Orchestration Layer (Intelligence Zone)
+- **Intent Classifier**: Natural language understanding to determine user goals
+- **Context Builder**: Aggregates user history, session state, and preferences
+- **Agent Router**: Routes requests to appropriate specialized agents
+- **Action Extractor**: Converts semantic intents into concrete system actions
+- **Response Formatter**: Generates human-readable responses
+
+### 4. Specialized Agent Layer (Domain Zone)
+- **Product Agent**: Handles product search, recommendations, details
+- **Cart Agent**: Manages shopping cart operations
+- **Order Agent**: Processes checkout and order management
+- **Support Agent**: Handles customer service inquiries
+
+### 5. Data Layer (Persistence Zone)
+- **User Store**: Customer profiles and authentication data
+- **Session Store**: Active conversation and interaction state
+- **Product Catalog**: Inventory and product information
+- **Memory Store**: Long-term user preferences and history
+
+### 6. Infrastructure Layer (Cross-Cutting)
+- **LLM Client**: Abstraction for language model interactions
+- **Cache Service**: Performance optimization layer
+- **Rate Limiter**: Traffic management
+- **Logging Service**: Audit trails and debugging
+
+## Technology Stack
+
+### Backend
+- **Framework**: FastAPI (Python async framework)
+- **Database**: MongoDB (document store for flexible schemas)
+- **Cache**: Redis (session and query caching)
+- **LLM Integration**: OpenAI GPT-4 / Anthropic Claude (configurable)
+
+### Frontend
+- **Framework**: React with TypeScript
+- **Build Tool**: Vite
+- **Styling**: Tailwind CSS
+- **State Management**: React Context + hooks
+
+### Infrastructure
+- **Containerization**: Docker
+- **API Documentation**: OpenAPI/Swagger
+
+## Data Flow
+
+```
+User Input → Client → WebSocket/REST → API Gateway
+    → Agent Orchestrator → Intent Classification
+    → Context Builder (session + memory lookup)
+    → Agent Router → Specialized Agent
+    → Action Execution → Response Formatter
+    → Client Display
+```
+
+## Design Principles
+
+### 1. Separation of Concerns
+Each layer operates independently with well-defined interfaces. Agents do not directly access databases; they invoke services.
+
+### 2. Stateless Orchestration
+The orchestrator maintains no internal state between requests. All context is derived from session store and memory store.
+
+### 3. Idempotent Operations
+All agent actions should be idempotent to support retry logic and session restoration.
+
+### 4. Graceful Degradation
+System should continue operating even if LLM services are temporarily unavailable.
+
+### 5. Auditability
+All significant actions should be logged with sufficient context for debugging and security auditing.
+
+## Security Considerations
+
+- Product browsing and cart endpoints support anonymous sessions
+- Order creation and all account-scoped endpoints require authentication
+- JWT tokens with short expiry and refresh token rotation
+- Input sanitization for all user-provided text
+- Rate limiting per user/IP to prevent abuse
+
+## Data Contract Naming
+
+- External API contracts use `camelCase` field names
+- Python domain/service models use `snake_case`
+- Persistence documents may use `camelCase`; explicit mapping is required at repository boundaries
+
+## Scalability Targets
+
+- Support 10,000+ concurrent user sessions
+- Handle 100+ requests per second per instance
+- LLM response latency < 3 seconds (p95)
+- Database queries < 100ms (p95)

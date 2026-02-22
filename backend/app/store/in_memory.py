@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
+from threading import RLock
+from typing import Any
+
+
+class InMemoryStore:
+    def __init__(self) -> None:
+        self.lock = RLock()
+        self._counters = {
+            "user": 0,
+            "session": 0,
+            "cart": 0,
+            "order": 0,
+            "item": 0,
+        }
+
+        self.users_by_id: dict[str, dict[str, Any]] = {}
+        self.user_ids_by_email: dict[str, str] = {}
+        self.sessions_by_id: dict[str, dict[str, Any]] = {}
+        self.carts_by_id: dict[str, dict[str, Any]] = {}
+        self.orders_by_id: dict[str, dict[str, Any]] = {}
+        self.refresh_tokens: dict[str, dict[str, Any]] = {}
+        self.idempotency_keys: dict[str, str] = {}
+        self.memories_by_user_id: dict[str, dict[str, Any]] = {}
+        self.products_by_id: dict[str, dict[str, Any]] = self._seed_products()
+
+    def next_id(self, prefix: str) -> str:
+        with self.lock:
+            self._counters[prefix] += 1
+            return f"{prefix}_{self._counters[prefix]:06d}"
+
+    @staticmethod
+    def utc_now() -> datetime:
+        return datetime.now(timezone.utc)
+
+    @staticmethod
+    def iso_now() -> str:
+        return InMemoryStore.utc_now().isoformat()
+
+    @staticmethod
+    def default_session_expiry(minutes: int = 30) -> str:
+        return (InMemoryStore.utc_now() + timedelta(minutes=minutes)).isoformat()
+
+    def _seed_products(self) -> dict[str, dict[str, Any]]:
+        raw = [
+            {
+                "id": "prod_001",
+                "name": "Running Shoes Pro",
+                "description": "High-performance running shoes for daily training.",
+                "category": "shoes",
+                "price": 129.99,
+                "currency": "USD",
+                "images": ["https://cdn.example.com/products/prod_001/main.jpg"],
+                "variants": [
+                    {"id": "var_001", "size": "10", "color": "blue", "inStock": True},
+                    {"id": "var_002", "size": "10", "color": "black", "inStock": True},
+                ],
+                "rating": 4.5,
+                "reviewCount": 234,
+            },
+            {
+                "id": "prod_002",
+                "name": "Trail Runner X",
+                "description": "Grip-focused trail shoes with reinforced toe box.",
+                "category": "shoes",
+                "price": 149.99,
+                "currency": "USD",
+                "images": ["https://cdn.example.com/products/prod_002/main.jpg"],
+                "variants": [
+                    {"id": "var_003", "size": "9", "color": "green", "inStock": True},
+                    {"id": "var_004", "size": "10", "color": "gray", "inStock": False},
+                ],
+                "rating": 4.3,
+                "reviewCount": 157,
+            },
+            {
+                "id": "prod_003",
+                "name": "Performance Hoodie",
+                "description": "Lightweight hoodie built for active movement.",
+                "category": "clothing",
+                "price": 79.99,
+                "currency": "USD",
+                "images": ["https://cdn.example.com/products/prod_003/main.jpg"],
+                "variants": [
+                    {"id": "var_005", "size": "M", "color": "navy", "inStock": True},
+                    {"id": "var_006", "size": "L", "color": "black", "inStock": True},
+                ],
+                "rating": 4.2,
+                "reviewCount": 88,
+            },
+            {
+                "id": "prod_004",
+                "name": "Everyday Joggers",
+                "description": "Soft stretch joggers for training and recovery.",
+                "category": "clothing",
+                "price": 64.5,
+                "currency": "USD",
+                "images": ["https://cdn.example.com/products/prod_004/main.jpg"],
+                "variants": [
+                    {"id": "var_007", "size": "M", "color": "charcoal", "inStock": True},
+                    {"id": "var_008", "size": "L", "color": "charcoal", "inStock": True},
+                ],
+                "rating": 4.1,
+                "reviewCount": 73,
+            },
+            {
+                "id": "prod_005",
+                "name": "Support Socks Pack",
+                "description": "Compression support socks, 3-pack.",
+                "category": "accessories",
+                "price": 24.99,
+                "currency": "USD",
+                "images": ["https://cdn.example.com/products/prod_005/main.jpg"],
+                "variants": [
+                    {"id": "var_009", "size": "M", "color": "white", "inStock": True},
+                    {"id": "var_010", "size": "L", "color": "white", "inStock": True},
+                ],
+                "rating": 4.0,
+                "reviewCount": 44,
+            },
+            {
+                "id": "prod_006",
+                "name": "Training Backpack",
+                "description": "Water-resistant backpack with shoe compartment.",
+                "category": "accessories",
+                "price": 89.0,
+                "currency": "USD",
+                "images": ["https://cdn.example.com/products/prod_006/main.jpg"],
+                "variants": [
+                    {"id": "var_011", "size": "one-size", "color": "black", "inStock": True}
+                ],
+                "rating": 4.6,
+                "reviewCount": 102,
+            },
+        ]
+        return {item["id"]: deepcopy(item) for item in raw}
+

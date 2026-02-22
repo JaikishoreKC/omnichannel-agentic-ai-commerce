@@ -1,0 +1,714 @@
+# API Contracts Specification
+
+## Overview
+
+This document defines v1 REST and WebSocket contracts for the omnichannel agentic commerce platform.
+
+## Base URL
+
+```text
+Production: https://api.example.com/v1
+Development: http://localhost:8000/v1
+WebSocket: ws://localhost:8000/ws
+```
+
+## Naming and Serialization
+
+- External API fields use `camelCase`.
+- Internal Python models use `snake_case`.
+- Repository layer maps between API DTOs and persistence models.
+
+## Authentication Model
+
+### Public Endpoints
+
+- `GET /health`
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `GET /products`
+- `GET /products/{productId}`
+- Cart/session bootstrap and anonymous cart operations
+
+### Protected Endpoints
+
+All account-scoped endpoints require:
+
+```text
+Authorization: Bearer <access_token>
+```
+
+## Auth
+
+### POST /auth/register
+
+Register a new user.
+
+Request:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "SecurePass123!",
+  "name": "John Doe"
+}
+```
+
+Response (201):
+
+```json
+{
+  "user": {
+    "id": "user_abc123",
+    "email": "user@example.com",
+    "name": "John Doe",
+    "createdAt": "2026-02-22T10:30:00Z"
+  },
+  "accessToken": "eyJhbGciOiJSUzI1NiIs...",
+  "refreshToken": "eyJhbGciOiJSUzI1NiIs...",
+  "expiresIn": 900
+}
+```
+
+### POST /auth/login
+
+Authenticate user and return token pair.
+
+Request:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "SecurePass123!"
+}
+```
+
+Response (200):
+
+```json
+{
+  "user": {
+    "id": "user_abc123",
+    "email": "user@example.com",
+    "name": "John Doe"
+  },
+  "accessToken": "eyJhbGciOiJSUzI1NiIs...",
+  "refreshToken": "eyJhbGciOiJSUzI1NiIs...",
+  "expiresIn": 900
+}
+```
+
+### POST /auth/refresh
+
+Rotate refresh token and return a new pair.
+
+Request:
+
+```json
+{
+  "refreshToken": "eyJhbGciOiJSUzI1NiIs..."
+}
+```
+
+Response (200):
+
+```json
+{
+  "accessToken": "eyJhbGciOiJSUzI1NiIs...",
+  "refreshToken": "eyJhbGciOiJSUzI1NiIs...",
+  "expiresIn": 900
+}
+```
+
+## Products
+
+### GET /products
+
+List products with filters.
+
+Query Parameters:
+
+- `query` (string)
+- `category` (string)
+- `minPrice` (number)
+- `maxPrice` (number)
+- `page` (number, default `1`)
+- `limit` (number, default `20`)
+
+Response (200):
+
+```json
+{
+  "products": [
+    {
+      "id": "prod_001",
+      "name": "Running Shoes Pro",
+      "description": "High-performance running shoes",
+      "category": "shoes",
+      "price": 129.99,
+      "currency": "USD",
+      "images": [
+        "https://cdn.example.com/products/prod_001/main.jpg"
+      ],
+      "variants": [
+        {
+          "id": "var_001",
+          "size": "10",
+          "color": "blue",
+          "inStock": true
+        }
+      ],
+      "rating": 4.5,
+      "reviewCount": 234
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 150,
+    "pages": 8
+  }
+}
+```
+
+### GET /products/{productId}
+
+Get product details.
+
+Response (200):
+
+```json
+{
+  "id": "prod_001",
+  "name": "Running Shoes Pro",
+  "description": "High-performance running shoes",
+  "category": "shoes",
+  "price": 129.99,
+  "currency": "USD",
+  "images": [
+    "https://cdn.example.com/products/prod_001/main.jpg"
+  ],
+  "variants": [
+    {
+      "id": "var_001",
+      "size": "10",
+      "color": "blue",
+      "inStock": true
+    },
+    {
+      "id": "var_002",
+      "size": "10",
+      "color": "black",
+      "inStock": true
+    }
+  ],
+  "specifications": {
+    "material": "mesh",
+    "weight": "280g"
+  },
+  "rating": 4.5,
+  "reviewCount": 234
+}
+```
+
+## Cart
+
+Notes:
+
+- Cart supports anonymous and authenticated users.
+- For anonymous calls, pass `X-Session-Id` header or session cookie.
+
+### GET /cart
+
+Response (200):
+
+```json
+{
+  "id": "cart_abc123",
+  "userId": "user_abc123",
+  "sessionId": "session_abc123",
+  "items": [
+    {
+      "itemId": "item_001",
+      "productId": "prod_001",
+      "variantId": "var_001",
+      "name": "Running Shoes Pro",
+      "price": 129.99,
+      "quantity": 1,
+      "image": "https://cdn.example.com/products/prod_001/main.jpg"
+    }
+  ],
+  "subtotal": 129.99,
+  "tax": 10.4,
+  "shipping": 5.99,
+  "discount": 0,
+  "total": 146.38,
+  "itemCount": 1,
+  "currency": "USD"
+}
+```
+
+### POST /cart/items
+
+Request:
+
+```json
+{
+  "productId": "prod_001",
+  "variantId": "var_001",
+  "quantity": 1
+}
+```
+
+Response (201):
+
+```json
+{
+  "success": true,
+  "cartId": "cart_abc123"
+}
+```
+
+### PUT /cart/items/{itemId}
+
+Request:
+
+```json
+{
+  "quantity": 3
+}
+```
+
+Response (200):
+
+```json
+{
+  "success": true,
+  "cartId": "cart_abc123"
+}
+```
+
+### DELETE /cart/items/{itemId}
+
+Response (204): no content
+
+### POST /cart/apply-discount
+
+Request:
+
+```json
+{
+  "code": "SAVE20"
+}
+```
+
+Response (200):
+
+```json
+{
+  "success": true,
+  "discount": {
+    "code": "SAVE20",
+    "type": "percentage",
+    "value": 20,
+    "amount": 25.99
+  },
+  "cartId": "cart_abc123"
+}
+```
+
+## Orders
+
+Notes:
+
+- Order creation requires authenticated user.
+- Use idempotency key for order creation retries.
+
+### POST /orders
+
+Headers:
+
+```text
+Authorization: Bearer <access_token>
+Idempotency-Key: 0f09bcf4-9859-45c8-a72e-5b8c8ce16d4e
+```
+
+Request:
+
+```json
+{
+  "shippingAddress": {
+    "name": "John Doe",
+    "line1": "123 Main St",
+    "city": "San Francisco",
+    "state": "CA",
+    "postalCode": "94102",
+    "country": "US"
+  },
+  "paymentMethod": {
+    "type": "card",
+    "token": "pm_xxx"
+  }
+}
+```
+
+Response (201):
+
+```json
+{
+  "order": {
+    "id": "order_xyz789",
+    "status": "confirmed",
+    "items": [
+      {
+        "productId": "prod_001",
+        "variantId": "var_001",
+        "name": "Running Shoes Pro",
+        "price": 129.99,
+        "quantity": 1
+      }
+    ],
+    "subtotal": 129.99,
+    "tax": 10.4,
+    "shipping": 5.99,
+    "discount": 0,
+    "total": 146.38,
+    "shippingAddress": {
+      "name": "John Doe",
+      "line1": "123 Main St",
+      "city": "San Francisco",
+      "state": "CA",
+      "postalCode": "94102",
+      "country": "US"
+    },
+    "createdAt": "2026-02-22T10:30:00Z",
+    "estimatedDelivery": "2026-02-27T10:30:00Z"
+  }
+}
+```
+
+Error (401 unauthenticated):
+
+```json
+{
+  "error": {
+    "code": "AUTH_REQUIRED",
+    "message": "Login required before order creation.",
+    "details": [
+      {
+        "field": "auth",
+        "message": "Authenticate, then retry checkout; cart state is preserved."
+      }
+    ]
+  }
+}
+```
+
+### GET /orders
+
+Protected endpoint.
+
+Response (200):
+
+```json
+{
+  "orders": [
+    {
+      "id": "order_xyz789",
+      "status": "delivered",
+      "total": 146.38,
+      "itemCount": 1,
+      "createdAt": "2026-02-22T10:30:00Z"
+    }
+  ]
+}
+```
+
+### GET /orders/{orderId}
+
+Protected endpoint.
+
+Response (200):
+
+```json
+{
+  "id": "order_xyz789",
+  "status": "shipped",
+  "items": [
+    {
+      "productId": "prod_001",
+      "variantId": "var_001",
+      "name": "Running Shoes Pro",
+      "price": 129.99,
+      "quantity": 1
+    }
+  ],
+  "shippingAddress": {
+    "name": "John Doe",
+    "line1": "123 Main St",
+    "city": "San Francisco",
+    "state": "CA",
+    "postalCode": "94102",
+    "country": "US"
+  },
+  "tracking": {
+    "carrier": "UPS",
+    "trackingNumber": "1Z999AA10123456784",
+    "status": "in_transit",
+    "updates": [
+      {
+        "status": "shipped",
+        "location": "Oakland, CA",
+        "timestamp": "2026-02-23T14:00:00Z"
+      }
+    ]
+  },
+  "timeline": [
+    {
+      "status": "order_placed",
+      "timestamp": "2026-02-22T10:30:00Z"
+    },
+    {
+      "status": "shipped",
+      "timestamp": "2026-02-23T14:00:00Z"
+    }
+  ]
+}
+```
+
+### POST /orders/{orderId}/cancel
+
+Protected endpoint.
+
+Request:
+
+```json
+{
+  "reason": "Changed my mind"
+}
+```
+
+Response (200):
+
+```json
+{
+  "success": true,
+  "orderId": "order_xyz789",
+  "status": "cancelled"
+}
+```
+
+## Sessions
+
+### POST /sessions
+
+Create a session for anonymous or authenticated context.
+
+Request:
+
+```json
+{
+  "channel": "web",
+  "initialContext": {}
+}
+```
+
+Response (201):
+
+```json
+{
+  "sessionId": "session_abc123",
+  "expiresAt": "2026-02-22T12:30:00Z"
+}
+```
+
+### GET /sessions/{sessionId}
+
+Response (200):
+
+```json
+{
+  "id": "session_abc123",
+  "userId": "user_abc123",
+  "channel": "websocket",
+  "createdAt": "2026-02-22T10:30:00Z",
+  "lastActivity": "2026-02-22T11:00:00Z",
+  "context": {
+    "cartId": "cart_abc123",
+    "viewedProducts": [
+      "prod_001"
+    ],
+    "conversationState": "shopping"
+  }
+}
+```
+
+### DELETE /sessions/{sessionId}
+
+Response (204): no content
+
+## Interactions (WebSocket)
+
+### Connection
+
+```text
+ws://localhost:8000/ws?sessionId=session_abc123
+```
+
+Auth should be provided by secure cookie or a short-lived WS token exchange endpoint (not querystring access token).
+
+### Client -> Server Message
+
+```json
+{
+  "type": "message",
+  "payload": {
+    "content": "I want to buy running shoes",
+    "timestamp": "2026-02-22T10:30:00Z"
+  }
+}
+```
+
+### Server -> Client Response
+
+```json
+{
+  "type": "response",
+  "payload": {
+    "message": "I can help with that. Here are some options.",
+    "agent": "product",
+    "data": {
+      "products": [
+        {
+          "id": "prod_001",
+          "name": "Running Shoes Pro"
+        }
+      ]
+    },
+    "suggestedActions": [
+      {
+        "label": "Add to Cart",
+        "action": "cart:add:prod_001:var_001"
+      }
+    ]
+  }
+}
+```
+
+### Error Message
+
+```json
+{
+  "type": "error",
+  "payload": {
+    "code": "SESSION_EXPIRED",
+    "message": "Your session has expired. Please refresh."
+  }
+}
+```
+
+## Memory
+
+### GET /memory/preferences
+
+Protected endpoint.
+
+Response (200):
+
+```json
+{
+  "preferences": {
+    "size": "M",
+    "brandPreferences": [
+      "Nike",
+      "Adidas"
+    ],
+    "categories": [
+      "shoes",
+      "clothing"
+    ],
+    "priceRange": {
+      "min": 50,
+      "max": 200
+    }
+  }
+}
+```
+
+### PUT /memory/preferences
+
+Protected endpoint.
+
+Request:
+
+```json
+{
+  "size": "L",
+  "brandPreferences": [
+    "Nike",
+    "Adidas",
+    "Puma"
+  ]
+}
+```
+
+Response (200):
+
+```json
+{
+  "success": true
+}
+```
+
+## Admin
+
+### GET /admin/stats
+
+Protected endpoint (`admin` role).
+
+Response (200):
+
+```json
+{
+  "activeSessions": 1250,
+  "ordersToday": 45,
+  "revenueToday": 5432.1,
+  "topProducts": [
+    {
+      "id": "prod_001",
+      "name": "Running Shoes",
+      "sold": 23
+    }
+  ]
+}
+```
+
+## Error Responses
+
+All errors follow:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid email format",
+    "details": [
+      {
+        "field": "email",
+        "message": "Must be a valid email"
+      }
+    ]
+  }
+}
+```
+
+### Common Error Codes
+
+| Code | HTTP Status | Description |
+|------|-------------|-------------|
+| AUTH_REQUIRED | 401 | Missing or invalid auth |
+| FORBIDDEN | 403 | Insufficient permissions |
+| NOT_FOUND | 404 | Resource not found |
+| VALIDATION_ERROR | 400 | Invalid request data |
+| RATE_LIMITED | 429 | Too many requests |
+| INTERNAL_ERROR | 500 | Server error |

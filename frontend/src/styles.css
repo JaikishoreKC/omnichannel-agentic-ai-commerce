@@ -1,0 +1,190 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap");
+
+:root {
+  --bg: #f6f1e8;
+  --paper: #fffdf8;
+  --ink: #1f1e1c;
+  --muted: #635e56;
+  --accent: #e04f2f;
+  --accent-alt: #0f6b55;
+  --line: #ddd2bf;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 10% 10%, #f8d7b6 0%, transparent 30%),
+    radial-gradient(circle at 90% 10%, #b9dfd5 0%, transparent 32%),
+    linear-gradient(160deg, #f3ede2 0%, #f8f4eb 45%, #efe6d8 100%);
+}
+
+.app-shell {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.hero {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: linear-gradient(120deg, #fffaf2 0%, #f9f4eb 100%);
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.kicker {
+  margin: 0;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-alt);
+}
+
+.hero h1 {
+  margin: 0.45rem 0 0.6rem;
+  font-size: clamp(1.4rem, 2.8vw, 2.2rem);
+}
+
+.status {
+  margin: 0;
+  color: var(--muted);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 980px) {
+  .grid {
+    grid-template-columns: 1fr 1.4fr 1fr;
+  }
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper);
+  padding: 1rem;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.panel h2 {
+  margin: 0 0 0.8rem;
+  font-size: 1.05rem;
+}
+
+label {
+  display: grid;
+  gap: 0.3rem;
+  margin-bottom: 0.65rem;
+  font-size: 0.9rem;
+}
+
+input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  font: inherit;
+}
+
+.button-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  padding: 0.55rem 0.8rem;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(120deg, var(--accent) 0%, #d13f22 100%);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.catalog {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.product-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: #fffaf3;
+}
+
+.product-top {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.product-card h3 {
+  margin: 0.25rem 0 0.4rem;
+  font-size: 1rem;
+}
+
+.product-card p {
+  margin: 0 0 0.6rem;
+  font-size: 0.9rem;
+}
+
+.cart-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.cart-list li {
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: 0.4rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.totals {
+  margin: 0.8rem 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.totals div {
+  display: flex;
+  justify-content: space-between;
+}
+
+.checkout {
+  width: 100%;
+  background: linear-gradient(120deg, var(--accent-alt) 0%, #0c5a48 100%);
+}
+
+.hint {
+  margin: 0.6rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
