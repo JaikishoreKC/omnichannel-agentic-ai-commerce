@@ -296,3 +296,156 @@ def test_interaction_change_order_address_when_allowed() -> None:
     payload = update.json()["payload"]
     assert payload["agent"] == "order"
     assert payload["data"]["shippingAddress"]["line1"] == "500 Main St"
+
+
+def test_interaction_add_by_product_name_and_quantity() -> None:
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    response = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "add 2 running shoes to cart",
+            "channel": "web",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()["payload"]
+    assert payload["agent"] == "cart"
+    assert "running shoes" in payload["message"].lower()
+
+    cart = client.get("/v1/cart", headers={"X-Session-Id": session_id})
+    assert cart.status_code == 200
+    assert cart.json()["itemCount"] == 2
+
+
+def test_interaction_add_multiple_items_in_single_message() -> None:
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    response = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "add 2 running shoes and 1 hoodie to cart",
+            "channel": "web",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()["payload"]
+    assert payload["agent"] == "cart"
+    assert "added" in payload["message"].lower()
+
+    cart = client.get("/v1/cart", headers={"X-Session-Id": session_id})
+    assert cart.status_code == 200
+    names = [item["name"].lower() for item in cart.json()["items"]]
+    assert any("running shoes" in name for name in names)
+    assert any("hoodie" in name for name in names)
+
+
+def test_interaction_adjust_item_quantity_up_and_down() -> None:
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    seed = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "add 2 running shoes to cart",
+            "channel": "web",
+        },
+    )
+    assert seed.status_code == 200
+
+    increase = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "increase quantity of running shoes in cart by 2",
+            "channel": "web",
+        },
+    )
+    assert increase.status_code == 200
+    assert "updated" in increase.json()["payload"]["message"].lower()
+
+    cart_after_increase = client.get("/v1/cart", headers={"X-Session-Id": session_id})
+    assert cart_after_increase.status_code == 200
+    first_item = cart_after_increase.json()["items"][0]
+    assert first_item["quantity"] == 4
+
+    decrease = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "decrease quantity of running shoes in cart by 1",
+            "channel": "web",
+        },
+    )
+    assert decrease.status_code == 200
+
+    cart_after_decrease = client.get("/v1/cart", headers={"X-Session-Id": session_id})
+    assert cart_after_decrease.status_code == 200
+    assert cart_after_decrease.json()["items"][0]["quantity"] == 3
+
+
+def test_interaction_clear_cart() -> None:
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    seed = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "add 2 running shoes and 1 hoodie to cart",
+            "channel": "web",
+        },
+    )
+    assert seed.status_code == 200
+
+    clear = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "empty my cart",
+            "channel": "web",
+        },
+    )
+    assert clear.status_code == 200
+    payload = clear.json()["payload"]
+    assert payload["agent"] == "cart"
+    assert "cleared" in payload["message"].lower()
+
+    cart = client.get("/v1/cart", headers={"X-Session-Id": session_id})
+    assert cart.status_code == 200
+    assert cart.json()["itemCount"] == 0
+
+
+def test_interaction_remove_partial_quantity_from_cart() -> None:
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    seed = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "add 3 running shoes to cart",
+            "channel": "web",
+        },
+    )
+    assert seed.status_code == 200
+
+    remove = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "remove 2 running shoes from cart",
+            "channel": "web",
+        },
+    )
+    assert remove.status_code == 200
+    assert "remaining quantity is 1" in remove.json()["payload"]["message"].lower()
+
+    cart = client.get("/v1/cart", headers={"X-Session-Id": session_id})
+    assert cart.status_code == 200
+    assert cart.json()["items"][0]["quantity"] == 1

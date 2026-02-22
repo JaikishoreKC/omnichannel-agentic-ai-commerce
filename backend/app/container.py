@@ -153,7 +153,7 @@ support_service = SupportService(
 )
 
 product_agent = ProductAgent(product_service=product_service)
-cart_agent = CartAgent(cart_service=cart_service)
+cart_agent = CartAgent(cart_service=cart_service, product_service=product_service)
 order_agent = OrderAgent(order_service=order_service)
 support_agent = SupportAgent(support_service=support_service)
 

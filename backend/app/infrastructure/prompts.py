@@ -3,12 +3,18 @@ from __future__ import annotations
 INTENT_CLASSIFICATION_PROMPT = """You are an intent classifier for an ecommerce assistant.
 Classify the user message into exactly one intent from this list:
 - product_search
+- search_and_add_to_cart
 - add_to_cart
+- add_multiple_to_cart
 - update_cart
+- adjust_cart_quantity
 - remove_from_cart
+- clear_cart
+- apply_discount
 - view_cart
 - checkout
 - order_status
+- change_order_address
 - cancel_order
 - request_refund
 - multi_status

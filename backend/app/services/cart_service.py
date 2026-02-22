@@ -90,6 +90,15 @@ class CartService:
             self._recalculate_cart(cart)
             self.cart_repository.update(cart)
 
+    def clear_cart(self, user_id: str | None, session_id: str) -> dict[str, Any]:
+        cart = self._get_or_create_cart(user_id=user_id, session_id=session_id)
+        with self.store.lock:
+            cart["items"] = []
+            cart["appliedDiscount"] = None
+            self._recalculate_cart(cart)
+            self.cart_repository.update(cart)
+            return deepcopy(cart)
+
     def apply_discount(
         self, user_id: str | None, session_id: str, discount_code: str
     ) -> dict[str, Any]:

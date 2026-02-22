@@ -43,12 +43,18 @@ class ActionExtractor:
             ]
         if name == "add_to_cart":
             return [AgentAction(name="add_item", params=entities)]
+        if name == "add_multiple_to_cart":
+            return [AgentAction(name="add_multiple_items", params=entities)]
         if name == "apply_discount":
             return [AgentAction(name="apply_discount", params=entities)]
         if name == "update_cart":
             return [AgentAction(name="update_item", params=entities)]
+        if name == "adjust_cart_quantity":
+            return [AgentAction(name="adjust_item_quantity", params=entities)]
         if name == "remove_from_cart":
             return [AgentAction(name="remove_item", params=entities)]
+        if name == "clear_cart":
+            return [AgentAction(name="clear_cart", params={})]
         if name == "view_cart":
             return [AgentAction(name="get_cart", params={})]
         if name == "checkout":

@@ -89,21 +89,44 @@ class IntentClassifier:
             return IntentResult(name="search_and_add_to_cart", confidence=0.93, entities=entities)
 
         # Cart intents.
+        if self._is_clear_cart_request(text):
+            return IntentResult(name="clear_cart", confidence=0.94, entities={})
+        if self._is_adjust_cart_quantity_request(text):
+            entities.update(self._extract_product_or_item_id(text))
+            entities.update(self._extract_delta(text))
+            query = self._extract_cart_item_query(message)
+            if query:
+                entities["query"] = query
+            return IntentResult(name="adjust_cart_quantity", confidence=0.89, entities=entities)
+        multi_items = self._extract_multi_add_items(message)
+        if len(multi_items) >= 2:
+            return IntentResult(name="add_multiple_to_cart", confidence=0.9, entities={"items": multi_items})
         if any(token in text for token in ("discount", "coupon", "promo")) and any(
             token in text for token in ("apply", "use", "code")
         ):
             entities.update(self._extract_discount_code(message))
             return IntentResult(name="apply_discount", confidence=0.9, entities=entities)
         if "remove" in text and "cart" in text:
+            entities.update(self._extract_quantity(text))
             entities.update(self._extract_product_or_item_id(text))
+            query = self._extract_cart_item_query(message)
+            if query:
+                entities["query"] = query
             return IntentResult(name="remove_from_cart", confidence=0.88, entities=entities)
         if any(phrase in text for phrase in ["update cart", "change quantity", "set quantity"]):
             entities.update(self._extract_quantity(text))
             entities.update(self._extract_product_or_item_id(text))
+            query = self._extract_cart_item_query(message)
+            if query:
+                entities["query"] = query
             return IntentResult(name="update_cart", confidence=0.86, entities=entities)
         if "add" in text and "cart" in text:
             entities.update(self._extract_quantity(text))
             entities.update(self._extract_product_or_variant_id(text))
+            entities.update(self._extract_color(text))
+            query = self._extract_add_query(message)
+            if query:
+                entities["query"] = query
             return IntentResult(name="add_to_cart", confidence=0.92, entities=entities)
         if "show cart" in text or "my cart" in text:
             return IntentResult(name="view_cart", confidence=0.9, entities={})
@@ -159,6 +182,17 @@ class IntentClassifier:
         if item_match:
             return {"itemId": item_match.group(1).replace("-", "_")}
         return self._extract_product_or_variant_id(text)
+
+    def _extract_delta(self, text: str) -> dict[str, Any]:
+        if "set quantity" in text:
+            return {}
+        amount_match = re.search(r"\b(\d+)\b", text)
+        amount = max(1, int(amount_match.group(1))) if amount_match else 1
+        if any(token in text for token in ("decrease", "reduce", "minus", "less")):
+            return {"delta": -amount}
+        if any(token in text for token in ("increase", "plus", "more", "another")):
+            return {"delta": amount}
+        return {}
 
     def _contains_order_status_phrase(self, text: str) -> bool:
         if "order" not in text:
@@ -238,3 +272,83 @@ class IntentClassifier:
         if "line2" in fields:
             shipping["line2"] = fields["line2"]
         return {"shippingAddress": shipping}
+
+    def _extract_add_query(self, message: str) -> str:
+        cleaned = re.sub(r"\badd\b", " ", message, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\bto\b\s+\b(my\s+)?cart\b", " ", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b(prod[_\-]?\d+|var[_\-]?\d+|item[_\-]?\d+)\b", " ", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b\d+\b", " ", cleaned)
+        cleaned = re.sub(
+            r"\b(please|the|a|an|item|items|quantity|qty|of|for|me|my|cart|with|color)\b",
+            " ",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(r"[,:;]", " ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        if cleaned.lower() in {"", "to", "cart"}:
+            return ""
+        return cleaned
+
+    def _extract_cart_item_query(self, message: str) -> str:
+        cleaned = re.sub(
+            r"\b(remove|delete|drop|update|change|set|increase|decrease|reduce|quantity|qty|from|in|cart|my|the)\b",
+            " ",
+            message,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(r"\b(prod[_\-]?\d+|var[_\-]?\d+|item[_\-]?\d+)\b", " ", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b\d+\b", " ", cleaned)
+        cleaned = re.sub(r"[,:;]", " ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned
+
+    def _is_clear_cart_request(self, text: str) -> bool:
+        phrases = (
+            "clear cart",
+            "empty cart",
+            "remove all from cart",
+            "delete all from cart",
+            "clear my cart",
+            "empty my cart",
+        )
+        return any(phrase in text for phrase in phrases)
+
+    def _is_adjust_cart_quantity_request(self, text: str) -> bool:
+        if "set quantity" in text:
+            return False
+        if "cart" not in text and "quantity" not in text and "qty" not in text:
+            return False
+        return any(
+            token in text
+            for token in ("increase", "decrease", "reduce", "minus", "plus", "one more", "one less", "another")
+        )
+
+    def _extract_multi_add_items(self, message: str) -> list[dict[str, Any]]:
+        lower = message.lower()
+        if "add" not in lower or "cart" not in lower:
+            return []
+        body = re.sub(r"^.*?\badd\b", "", lower, flags=re.IGNORECASE).strip()
+        body = re.sub(r"\bto\b\s+\b(my\s+)?cart\b.*$", "", body, flags=re.IGNORECASE).strip()
+        body = re.sub(r"\s+", " ", body).strip(" .,;")
+        if not body:
+            return []
+        parts = re.split(r"\s*(?:,|\band\b)\s*", body)
+        items: list[dict[str, Any]] = []
+        for part in parts:
+            chunk = part.strip(" .,;")
+            if not chunk:
+                continue
+            qty_match = re.search(r"\b(\d+)\b", chunk)
+            quantity = max(1, min(50, int(qty_match.group(1)))) if qty_match else 1
+            color = self._extract_color(chunk).get("color")
+            query = re.sub(r"\b\d+\b", " ", chunk)
+            query = re.sub(r"\b(of|a|an|the|please|to|my|cart)\b", " ", query)
+            query = re.sub(r"\s+", " ", query).strip()
+            if not query:
+                continue
+            payload: dict[str, Any] = {"query": query, "quantity": quantity}
+            if color:
+                payload["color"] = color
+            items.append(payload)
+        return items

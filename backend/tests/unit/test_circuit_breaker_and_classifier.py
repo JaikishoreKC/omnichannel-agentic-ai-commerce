@@ -71,3 +71,23 @@ def test_intent_classifier_detects_delayed_order_phrase() -> None:
     classifier = IntentClassifier()
     result = classifier.classify("my order hasn't arrived yet")
     assert result.name == "order_status"
+
+
+def test_intent_classifier_detects_clear_cart() -> None:
+    classifier = IntentClassifier()
+    result = classifier.classify("please clear my cart")
+    assert result.name == "clear_cart"
+
+
+def test_intent_classifier_detects_multi_item_add() -> None:
+    classifier = IntentClassifier()
+    result = classifier.classify("add 2 running shoes and 1 hoodie to cart")
+    assert result.name == "add_multiple_to_cart"
+    assert len(result.entities["items"]) >= 2
+
+
+def test_intent_classifier_detects_adjust_quantity_delta() -> None:
+    classifier = IntentClassifier()
+    result = classifier.classify("increase quantity of hoodie in cart by 2")
+    assert result.name == "adjust_cart_quantity"
+    assert result.entities["delta"] == 2
