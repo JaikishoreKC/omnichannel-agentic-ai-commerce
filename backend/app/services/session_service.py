@@ -29,7 +29,16 @@ class SessionService:
                 "createdAt": now.isoformat(),
                 "lastActivity": now.isoformat(),
                 "expiresAt": expires_at.isoformat(),
-                "context": initial_context or {},
+                "context": {
+                    "conversation": {
+                        "lastIntent": None,
+                        "lastAgent": None,
+                        "lastMessage": None,
+                        "entities": {},
+                    },
+                    "shopping": {"cartId": None, "viewedProducts": [], "searchHistory": []},
+                    **(initial_context or {}),
+                },
             }
             self.store.sessions_by_id[session_id] = session
             return session
@@ -58,3 +67,22 @@ class SessionService:
                 session["userId"] = user_id
                 session["lastActivity"] = self.store.iso_now()
 
+    def update_conversation(
+        self,
+        *,
+        session_id: str,
+        last_intent: str,
+        last_agent: str,
+        last_message: str,
+        entities: dict[str, Any] | None = None,
+    ) -> None:
+        with self.store.lock:
+            session = self.store.sessions_by_id.get(session_id)
+            if not session:
+                return
+            conversation = session.setdefault("context", {}).setdefault("conversation", {})
+            conversation["lastIntent"] = last_intent
+            conversation["lastAgent"] = last_agent
+            conversation["lastMessage"] = last_message
+            conversation["entities"] = entities or {}
+            session["lastActivity"] = self.store.iso_now()

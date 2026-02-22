@@ -607,6 +607,54 @@ Auth should be provided by secure cookie or a short-lived WS token exchange endp
 }
 ```
 
+## Interactions (REST)
+
+### POST /interactions/message
+
+Process a conversational message through the orchestrator pipeline.
+
+Request:
+
+```json
+{
+  "sessionId": "session_abc123",
+  "content": "show me running shoes under $150",
+  "channel": "web"
+}
+```
+
+Response (200):
+
+```json
+{
+  "type": "response",
+  "sessionId": "session_abc123",
+  "payload": {
+    "message": "I found 2 options. Top result: Running Shoes Pro ($129.99).",
+    "agent": "product",
+    "data": {
+      "products": [
+        {
+          "id": "prod_001",
+          "name": "Running Shoes Pro"
+        }
+      ]
+    },
+    "suggestedActions": [
+      {
+        "label": "Add Running Shoes Pro",
+        "action": "add_to_cart:prod_001:var_001"
+      }
+    ],
+    "metadata": {
+      "intent": "product_search",
+      "confidence": 0.84,
+      "success": true
+    }
+  }
+}
+```
+
 ## Memory
 
 ### GET /memory/preferences
@@ -660,6 +708,32 @@ Response (200):
 }
 ```
 
+### GET /memory/history
+
+Protected endpoint.
+
+Query Parameters:
+
+- `limit` (number, optional, default `20`)
+
+Response (200):
+
+```json
+{
+  "history": [
+    {
+      "type": "product_search",
+      "timestamp": "2026-02-22T10:30:00Z",
+      "summary": {
+        "query": "show me running shoes under $150",
+        "action": "product_search",
+        "response": "I found 2 options. Top result: Running Shoes Pro ($129.99)."
+      }
+    }
+  ]
+}
+```
+
 ## Admin
 
 ### GET /admin/stats
@@ -673,6 +747,15 @@ Response (200):
   "activeSessions": 1250,
   "ordersToday": 45,
   "revenueToday": 5432.1,
+  "messagesToday": 3821,
+  "supportOpenTickets": 12,
+  "agentPerformance": [
+    {
+      "agent": "product",
+      "interactions": 1400,
+      "successRate": 96.4
+    }
+  ],
   "topProducts": [
     {
       "id": "prod_001",
@@ -680,6 +763,130 @@ Response (200):
       "sold": 23
     }
   ]
+}
+```
+
+### GET /admin/categories
+
+Protected endpoint (`admin` role).
+
+Response (200):
+
+```json
+{
+  "categories": [
+    "accessories",
+    "clothing",
+    "shoes"
+  ]
+}
+```
+
+### POST /admin/products
+
+Protected endpoint (`admin` role).
+
+Request:
+
+```json
+{
+  "id": "prod_999",
+  "name": "New Performance Tee",
+  "description": "Lightweight breathable tee",
+  "category": "clothing",
+  "price": 39.99,
+  "currency": "USD",
+  "images": ["https://cdn.example.com/products/prod_999/main.jpg"],
+  "variants": [
+    {
+      "id": "var_999",
+      "size": "M",
+      "color": "black",
+      "inStock": true,
+      "inventory": {
+        "availableQuantity": 25
+      }
+    }
+  ]
+}
+```
+
+Response (201):
+
+```json
+{
+  "product": {
+    "id": "prod_999",
+    "name": "New Performance Tee"
+  }
+}
+```
+
+### PUT /admin/products/{productId}
+
+Protected endpoint (`admin` role).
+
+Response (200):
+
+```json
+{
+  "product": {
+    "id": "prod_999",
+    "name": "Updated Performance Tee"
+  }
+}
+```
+
+### DELETE /admin/products/{productId}
+
+Protected endpoint (`admin` role).
+
+Response (204): no content
+
+### GET /admin/inventory/{variantId}
+
+Protected endpoint (`admin` role).
+
+Response (200):
+
+```json
+{
+  "inventory": {
+    "variantId": "var_001",
+    "productId": "prod_001",
+    "totalQuantity": 20,
+    "reservedQuantity": 0,
+    "availableQuantity": 20,
+    "updatedAt": "2026-02-22T10:30:00Z"
+  }
+}
+```
+
+### PUT /admin/inventory/{variantId}
+
+Protected endpoint (`admin` role).
+
+Request:
+
+```json
+{
+  "totalQuantity": 25,
+  "availableQuantity": 18
+}
+```
+
+Response (200):
+
+```json
+{
+  "inventory": {
+    "variantId": "var_001",
+    "productId": "prod_001",
+    "totalQuantity": 25,
+    "reservedQuantity": 0,
+    "availableQuantity": 18,
+    "updatedAt": "2026-02-22T10:31:00Z"
+  }
 }
 ```
 

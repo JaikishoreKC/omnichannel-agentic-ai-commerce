@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 class RegisterRequest(BaseModel):
     email: str
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=12)
     name: str = Field(min_length=1)
 
 
@@ -93,3 +93,34 @@ class UpdatePreferencesRequest(BaseModel):
     categories: list[str] | None = None
     priceRange: dict[str, float] | None = None
 
+
+class InteractionMessageRequest(BaseModel):
+    sessionId: str
+    content: str = Field(min_length=1, max_length=2000)
+    channel: str = "web"
+
+
+class ProductVariantWrite(BaseModel):
+    id: str
+    size: str
+    color: str
+    inStock: bool = True
+    inventory: dict[str, int] | None = None
+
+
+class ProductWriteRequest(BaseModel):
+    id: str | None = None
+    name: str
+    description: str = ""
+    category: str
+    price: float = Field(gt=0)
+    currency: str = "USD"
+    images: list[str] = Field(default_factory=list)
+    variants: list[ProductVariantWrite] = Field(default_factory=list)
+    rating: float = 0
+    reviewCount: int = 0
+
+
+class InventoryUpdateRequest(BaseModel):
+    totalQuantity: int | None = Field(default=None, ge=0)
+    availableQuantity: int | None = Field(default=None, ge=0)

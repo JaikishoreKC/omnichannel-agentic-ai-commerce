@@ -1,18 +1,32 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import timedelta
 from typing import Any
 
 from fastapi import HTTPException
 
 from app.services.cart_service import CartService
+from app.services.inventory_service import InventoryService
+from app.services.notification_service import NotificationService
+from app.services.payment_service import PaymentService
 from app.store.in_memory import InMemoryStore
 
 
 class OrderService:
-    def __init__(self, store: InMemoryStore, cart_service: CartService) -> None:
+    def __init__(
+        self,
+        store: InMemoryStore,
+        cart_service: CartService,
+        inventory_service: InventoryService,
+        payment_service: PaymentService,
+        notification_service: NotificationService,
+    ) -> None:
         self.store = store
         self.cart_service = cart_service
+        self.inventory_service = inventory_service
+        self.payment_service = payment_service
+        self.notification_service = notification_service
 
     def create_order(
         self,
@@ -34,9 +48,21 @@ class OrderService:
         if not cart["items"]:
             raise HTTPException(status_code=400, detail="Cart is empty")
 
+        reservations = self.inventory_service.reserve_for_order(cart["items"])
+        payment_result: dict[str, Any] | None = None
+        try:
+            payment_result = self.payment_service.authorize(
+                amount=float(cart["total"]),
+                payment_method=payment_method,
+            )
+        except Exception:
+            self.inventory_service.rollback_reservation(reservations)
+            raise
+
         with self.store.lock:
             order_id = self.store.next_id("order")
             created_at = self.store.iso_now()
+            estimated_delivery = (self.store.utc_now() + timedelta(days=5)).isoformat()
             order = {
                 "id": order_id,
                 "userId": user_id,
@@ -49,9 +75,9 @@ class OrderService:
                 "total": cart["total"],
                 "shippingAddress": shipping_address,
                 "payment": {
-                    "method": payment_method.get("type", "unknown"),
-                    "transactionId": f"tx_{order_id}",
-                    "status": "authorized",
+                    "method": payment_result.get("method") if payment_result else "unknown",
+                    "transactionId": payment_result.get("transactionId") if payment_result else None,
+                    "status": payment_result.get("status") if payment_result else "failed",
                 },
                 "timeline": [
                     {"status": "order_placed", "timestamp": created_at},
@@ -63,6 +89,7 @@ class OrderService:
                     "status": "pending",
                     "updates": [],
                 },
+                "estimatedDelivery": estimated_delivery,
                 "createdAt": created_at,
                 "updatedAt": created_at,
             }
@@ -77,17 +104,27 @@ class OrderService:
                     self.cart_service._recalculate_cart(candidate)  # noqa: SLF001
                     break
 
+            self.inventory_service.commit_reservation(order["items"])
+            self.notification_service.send_order_confirmation(user_id=user_id, order=order)
+
             return deepcopy(order)
 
     def list_orders(self, user_id: str) -> dict[str, Any]:
         with self.store.lock:
-            orders = [
-                deepcopy(order)
-                for order in self.store.orders_by_id.values()
-                if order["userId"] == user_id
-            ]
+            orders = [order for order in self.store.orders_by_id.values() if order["userId"] == user_id]
             orders.sort(key=lambda order: order["createdAt"], reverse=True)
-            return {"orders": orders}
+            return {
+                "orders": [
+                    {
+                        "id": order["id"],
+                        "status": order["status"],
+                        "total": order["total"],
+                        "itemCount": sum(int(item.get("quantity", 0)) for item in order["items"]),
+                        "createdAt": order["createdAt"],
+                    }
+                    for order in orders
+                ]
+            }
 
     def get_order(self, user_id: str, order_id: str) -> dict[str, Any]:
         with self.store.lock:
@@ -114,4 +151,3 @@ class OrderService:
                 }
             )
             return {"success": True, "orderId": order_id, "status": "cancelled"}
-

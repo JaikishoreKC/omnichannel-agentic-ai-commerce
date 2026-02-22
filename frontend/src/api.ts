@@ -1,6 +1,7 @@
 import type { AuthResponse, Cart, Product } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/v1";
+const WS_BASE = import.meta.env.VITE_WS_URL ?? "ws://localhost:8000/ws";
 const SESSION_KEY = "commerce_session_id";
 const AUTH_KEY = "commerce_access_token";
 
@@ -20,6 +21,10 @@ export function setToken(value: string | null): void {
 
 function sessionId(): string | null {
   return localStorage.getItem(SESSION_KEY);
+}
+
+export function currentSessionId(): string | null {
+  return sessionId();
 }
 
 async function request<T>(
@@ -79,6 +84,50 @@ export async function ensureSession(): Promise<string> {
   return payload.sessionId;
 }
 
+export interface ChatResponsePayload {
+  message: string;
+  agent: string;
+  data: Record<string, unknown>;
+  suggestedActions: Array<{ label: string; action: string }>;
+  metadata: Record<string, unknown>;
+}
+
+export function connectChat(params: {
+  sessionId: string;
+  onMessage: (payload: ChatResponsePayload) => void;
+  onSession: (sessionId: string) => void;
+  onError: (message: string) => void;
+  onClose?: () => void;
+}): WebSocket {
+  const socket = new WebSocket(`${WS_BASE}?sessionId=${encodeURIComponent(params.sessionId)}`);
+  socket.onmessage = (event) => {
+    try {
+      const parsed = JSON.parse(event.data as string) as {
+        type: string;
+        sessionId?: string;
+        payload?: any;
+      };
+      if (parsed.type === "session" && parsed.payload?.sessionId) {
+        localStorage.setItem(SESSION_KEY, parsed.payload.sessionId);
+        params.onSession(parsed.payload.sessionId);
+        return;
+      }
+      if (parsed.type === "response" && parsed.payload) {
+        params.onMessage(parsed.payload as ChatResponsePayload);
+        return;
+      }
+      if (parsed.type === "error") {
+        params.onError(parsed.payload?.message ?? "Unknown websocket error");
+      }
+    } catch {
+      params.onError("Failed to parse websocket message.");
+    }
+  };
+  socket.onerror = () => params.onError("WebSocket connection error.");
+  socket.onclose = () => params.onClose?.();
+  return socket;
+}
+
 export async function register(input: {
   email: string;
   password: string;
@@ -131,4 +180,3 @@ export async function checkout(input: {
     "Idempotency-Key": idempotencyKey,
   });
 }
-

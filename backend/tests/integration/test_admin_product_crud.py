@@ -1,0 +1,68 @@
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+
+def test_admin_can_manage_products() -> None:
+    client = TestClient(app)
+
+    admin_login = client.post(
+        "/v1/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert admin_login.status_code == 200
+    admin_token = admin_login.json()["accessToken"]
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    create = client.post(
+        "/v1/admin/products",
+        headers=headers,
+        json={
+            "id": "prod_900001",
+            "name": "Admin Managed Tee",
+            "description": "Created through admin API",
+            "category": "clothing",
+            "price": 44.99,
+            "currency": "USD",
+            "images": [],
+            "variants": [
+                {"id": "var_900001", "size": "M", "color": "black", "inStock": True}
+            ],
+            "rating": 0,
+            "reviewCount": 0,
+        },
+    )
+    assert create.status_code == 201
+    assert create.json()["product"]["id"] == "prod_900001"
+
+    update = client.put(
+        "/v1/admin/products/prod_900001",
+        headers=headers,
+        json={
+            "id": "prod_900001",
+            "name": "Admin Managed Tee v2",
+            "description": "Updated through admin API",
+            "category": "clothing",
+            "price": 49.99,
+            "currency": "USD",
+            "images": [],
+            "variants": [
+                {"id": "var_900001", "size": "L", "color": "black", "inStock": True}
+            ],
+            "rating": 0,
+            "reviewCount": 0,
+        },
+    )
+    assert update.status_code == 200
+    assert update.json()["product"]["name"] == "Admin Managed Tee v2"
+
+    categories = client.get("/v1/admin/categories", headers=headers)
+    assert categories.status_code == 200
+    assert "clothing" in categories.json()["categories"]
+
+    delete = client.delete("/v1/admin/products/prod_900001", headers=headers)
+    assert delete.status_code == 204
+
+    missing = client.get("/v1/products/prod_900001")
+    assert missing.status_code == 404
+

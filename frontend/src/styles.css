@@ -188,3 +188,46 @@ button:disabled {
   font-size: 0.85rem;
 }
 
+.chat-log {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fffaf3;
+  min-height: 180px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 0.65rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.chat-bubble {
+  padding: 0.5rem 0.6rem;
+  border-radius: 10px;
+  font-size: 0.9rem;
+}
+
+.chat-bubble.user {
+  background: #efe5d4;
+}
+
+.chat-bubble.assistant {
+  background: #e8f2ef;
+}
+
+.chat-input-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.chat-actions {
+  margin-top: 0.55rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.action-btn {
+  background: linear-gradient(120deg, #b45b23 0%, #8f3f10 100%);
+}

@@ -14,9 +14,14 @@ The initial implementation includes:
 - Authenticated checkout requirement (guests cannot create orders)
 - Session bootstrap and cart transfer on login/register
 - Core endpoints under `/v1`
-- Basic WebSocket chat endpoint (`/ws`)
-- Initial backend unit tests for guest/cart/auth boundary rules
-- Development token implementation uses HMAC-signed tokens; RS256 key management is a planned hardening step
+- Agent orchestration pipeline (intent -> actions -> router -> specialized agents)
+- Real-time chat via WebSocket (`/ws`) and REST interactions endpoint
+- Inventory reservation, payment authorization stub, and order confirmation notifications
+- Admin inventory operations and richer admin analytics (agent performance, message volume, support queue)
+- Support escalation tickets from conversational assistant
+- Preference-aware recommendations (memory-informed product suggestions)
+- In-memory persistence with optional MongoDB/Redis connectivity
+- Backend unit/integration tests for auth, interactions, checkout, and websocket flows
 
 ## Run Backend
 
@@ -53,6 +58,8 @@ Services:
 
 - Backend: `http://localhost:8000`
 - Frontend: `http://localhost:5173`
+- MongoDB: `mongodb://localhost:27017`
+- Redis: `redis://localhost:6379`
 
 ## API Summary
 
@@ -66,4 +73,15 @@ Services:
 - `POST /v1/orders` (auth required)
 - `POST /v1/orders/{orderId}/cancel`
 - `POST /v1/sessions`
+- `POST /v1/interactions/message`
+- `GET /v1/memory/history`
+- `GET /v1/admin/categories`
+- `POST /v1/admin/products`
+- `GET /v1/admin/inventory/{variantId}`
+- `PUT /v1/admin/inventory/{variantId}`
 - `GET /health`
+
+## Demo Admin Account
+
+- Email: `admin@example.com`
+- Password: `AdminPass123!`

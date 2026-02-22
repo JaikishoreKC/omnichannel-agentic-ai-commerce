@@ -52,6 +52,7 @@ def create_token(
     payload: dict[str, Any] = {
         "sub": subject,
         "type": token_type,
+        "jti": secrets.token_hex(16),
         "iat": int(time.time()),
         "exp": int(time.time()) + ttl_seconds,
     }
@@ -83,4 +84,3 @@ def decode_token(token: str, secret: str, expected_type: str | None = None) -> d
     if expected_type and payload.get("type") != expected_type:
         raise ValueError("Unexpected token type")
     return payload
-

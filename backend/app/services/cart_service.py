@@ -50,7 +50,7 @@ class CartService:
                     "name": product["name"],
                     "price": product["price"],
                     "quantity": quantity,
-                    "image": product["images"][0],
+                    "image": product["images"][0] if product.get("images") else "",
                 }
                 cart["items"].append(item)
             self._recalculate_cart(cart)
@@ -163,4 +163,3 @@ class CartService:
         cart["total"] = total
         cart["itemCount"] = sum(item["quantity"] for item in cart["items"])
         cart["updatedAt"] = self.store.iso_now()
-

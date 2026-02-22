@@ -14,6 +14,9 @@ class Settings:
     cart_tax_rate: float = 0.08
     default_shipping_fee: float = 5.99
     cors_origins: str = "http://localhost:5173"
+    mongodb_uri: str = "mongodb://localhost:27017/commerce"
+    redis_url: str = "redis://localhost:6379/0"
+    enable_external_services: bool = False
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -37,5 +40,8 @@ class Settings:
                 os.getenv("DEFAULT_SHIPPING_FEE", str(cls.default_shipping_fee))
             ),
             cors_origins=os.getenv("CORS_ORIGINS", cls.cors_origins),
+            mongodb_uri=os.getenv("MONGODB_URI", cls.mongodb_uri),
+            redis_url=os.getenv("REDIS_URL", cls.redis_url),
+            enable_external_services=os.getenv("ENABLE_EXTERNAL_SERVICES", "false").lower()
+            in {"1", "true", "yes"},
         )
-

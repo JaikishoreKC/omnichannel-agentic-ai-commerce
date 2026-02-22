@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import Any
 
+from app.core.security import hash_password
+
 
 class InMemoryStore:
     def __init__(self) -> None:
@@ -15,6 +17,7 @@ class InMemoryStore:
             "cart": 0,
             "order": 0,
             "item": 0,
+            "payment": 0,
         }
 
         self.users_by_id: dict[str, dict[str, Any]] = {}
@@ -25,7 +28,12 @@ class InMemoryStore:
         self.refresh_tokens: dict[str, dict[str, Any]] = {}
         self.idempotency_keys: dict[str, str] = {}
         self.memories_by_user_id: dict[str, dict[str, Any]] = {}
+        self.messages_by_session: dict[str, list[dict[str, Any]]] = {}
+        self.support_tickets: list[dict[str, Any]] = []
+        self.notifications: list[dict[str, Any]] = []
         self.products_by_id: dict[str, dict[str, Any]] = self._seed_products()
+        self.inventory_by_variant: dict[str, dict[str, Any]] = self._seed_inventory()
+        self._seed_admin_user()
 
     def next_id(self, prefix: str) -> str:
         with self.lock:
@@ -138,3 +146,33 @@ class InMemoryStore:
         ]
         return {item["id"]: deepcopy(item) for item in raw}
 
+    def _seed_inventory(self) -> dict[str, dict[str, Any]]:
+        inventory: dict[str, dict[str, Any]] = {}
+        for product in self.products_by_id.values():
+            for variant in product["variants"]:
+                base_qty = 20 if variant.get("inStock", False) else 0
+                inventory[variant["id"]] = {
+                    "variantId": variant["id"],
+                    "productId": product["id"],
+                    "totalQuantity": base_qty,
+                    "reservedQuantity": 0,
+                    "availableQuantity": base_qty,
+                    "updatedAt": self.iso_now(),
+                }
+        return inventory
+
+    def _seed_admin_user(self) -> None:
+        admin_id = self.next_id("user")
+        now = self.iso_now()
+        admin = {
+            "id": admin_id,
+            "email": "admin@example.com",
+            "name": "Platform Admin",
+            "passwordHash": hash_password("AdminPass123!"),
+            "role": "admin",
+            "createdAt": now,
+            "updatedAt": now,
+            "lastLoginAt": now,
+        }
+        self.users_by_id[admin_id] = admin
+        self.user_ids_by_email[admin["email"]] = admin_id
