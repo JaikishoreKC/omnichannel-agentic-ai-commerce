@@ -121,5 +121,74 @@ class OrderAgent(BaseAgent):
                 next_actions=[{"label": "Continue shopping", "action": "search:more"}],
             )
 
-        raise HTTPException(status_code=400, detail=f"Unsupported order action: {action.name}")
+        if action.name == "request_refund":
+            if not user_id:
+                return AgentExecutionResult(
+                    success=False,
+                    message="Please log in to request refunds.",
+                    data={"code": "AUTH_REQUIRED"},
+                )
+            order_id = action.params.get("orderId")
+            if not order_id:
+                orders = self.order_service.list_orders(user_id=user_id)["orders"]
+                if not orders:
+                    return AgentExecutionResult(
+                        success=False,
+                        message="You have no order available for refund.",
+                        data={},
+                    )
+                order_id = orders[0]["id"]
+            result = self.order_service.request_refund(
+                user_id=user_id,
+                order_id=str(order_id),
+                reason=action.params.get("reason"),
+            )
+            return AgentExecutionResult(
+                success=True,
+                message=f"Refund request completed for order {result['orderId']}.",
+                data=result,
+                next_actions=[{"label": "Track order", "action": f"order_status:{result['orderId']}"}],
+            )
 
+        if action.name == "change_order_address":
+            if not user_id:
+                return AgentExecutionResult(
+                    success=False,
+                    message="Please log in to change order addresses.",
+                    data={"code": "AUTH_REQUIRED"},
+                )
+            order_id = action.params.get("orderId")
+            if not order_id:
+                orders = self.order_service.list_orders(user_id=user_id)["orders"]
+                if not orders:
+                    return AgentExecutionResult(
+                        success=False,
+                        message="You have no order available for address updates.",
+                        data={},
+                    )
+                order_id = orders[0]["id"]
+
+            shipping_address = action.params.get("shippingAddress")
+            if not isinstance(shipping_address, dict):
+                return AgentExecutionResult(
+                    success=False,
+                    message=(
+                        "I can update shipping on eligible orders. Provide fields like "
+                        "line1=500 Main St, city=Austin, state=TX, postalCode=78701, country=US."
+                    ),
+                    data={"orderId": str(order_id)},
+                )
+
+            result = self.order_service.update_shipping_address(
+                user_id=user_id,
+                order_id=str(order_id),
+                shipping_address=shipping_address,
+            )
+            return AgentExecutionResult(
+                success=True,
+                message=f"Updated shipping address for order {result['orderId']}.",
+                data=result,
+                next_actions=[{"label": "Track order", "action": f"order_status:{result['orderId']}"}],
+            )
+
+        raise HTTPException(status_code=400, detail=f"Unsupported order action: {action.name}")

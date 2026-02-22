@@ -13,6 +13,7 @@ from app.orchestrator.orchestrator_core import Orchestrator
 from app.orchestrator.response_formatter import ResponseFormatter
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
 from app.infrastructure.observability import MetricsCollector
+from app.infrastructure.llm_client import LLMClient
 from app.infrastructure.rate_limiter import SlidingWindowRateLimiter
 from app.infrastructure.state_persistence import StatePersistence
 from app.repositories.auth_repository import AuthRepository
@@ -47,6 +48,7 @@ mongo_manager.connect()
 redis_manager.connect()
 rate_limiter = SlidingWindowRateLimiter()
 metrics_collector = MetricsCollector()
+llm_client = LLMClient(settings=settings)
 state_persistence = StatePersistence(
     mongo_manager=mongo_manager,
     redis_manager=redis_manager,
@@ -156,7 +158,7 @@ order_agent = OrderAgent(order_service=order_service)
 support_agent = SupportAgent(support_service=support_service)
 
 orchestrator = Orchestrator(
-    intent_classifier=IntentClassifier(),
+    intent_classifier=IntentClassifier(llm_client=llm_client),
     context_builder=ContextBuilder(
         session_service=session_service,
         cart_service=cart_service,

@@ -6,13 +6,13 @@ from pydantic import BaseModel, Field
 
 
 class RegisterRequest(BaseModel):
-    email: str
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     password: str = Field(min_length=12)
     name: str = Field(min_length=1)
 
 
 class LoginRequest(BaseModel):
-    email: str
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     password: str
 
 
@@ -59,18 +59,18 @@ class ApplyDiscountRequest(BaseModel):
 
 
 class ShippingAddress(BaseModel):
-    name: str
-    line1: str
-    city: str
-    state: str
-    postalCode: str
-    country: str
+    name: str = Field(min_length=1, max_length=120)
+    line1: str = Field(min_length=1, max_length=200)
+    city: str = Field(min_length=1, max_length=100)
+    state: str = Field(min_length=2, max_length=100)
+    postalCode: str = Field(min_length=3, max_length=16)
+    country: str = Field(min_length=2, max_length=2)
     line2: str | None = None
 
 
 class PaymentMethod(BaseModel):
-    type: str
-    token: str
+    type: str = Field(min_length=2, max_length=30)
+    token: str = Field(min_length=2, max_length=200)
 
 
 class CreateOrderRequest(BaseModel):
@@ -80,6 +80,14 @@ class CreateOrderRequest(BaseModel):
 
 class CancelOrderRequest(BaseModel):
     reason: str | None = None
+
+
+class RefundOrderRequest(BaseModel):
+    reason: str | None = None
+
+
+class UpdateOrderAddressRequest(BaseModel):
+    shippingAddress: ShippingAddress
 
 
 class CreateSessionRequest(BaseModel):

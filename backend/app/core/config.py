@@ -19,6 +19,16 @@ class Settings:
     enable_external_services: bool = False
     rate_limit_anonymous_per_minute: int = 120
     rate_limit_authenticated_per_minute: int = 600
+    llm_enabled: bool = False
+    llm_provider: str = "openai"
+    llm_model: str = "gpt-4o-mini"
+    llm_timeout_seconds: float = 8.0
+    llm_max_tokens: int = 200
+    llm_temperature: float = 0.0
+    llm_circuit_breaker_failure_threshold: int = 5
+    llm_circuit_breaker_timeout_seconds: float = 60.0
+    openai_api_key: str = ""
+    anthropic_api_key: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -58,4 +68,24 @@ class Settings:
                     str(cls.rate_limit_authenticated_per_minute),
                 )
             ),
+            llm_enabled=os.getenv("LLM_ENABLED", "false").lower() in {"1", "true", "yes"},
+            llm_provider=os.getenv("LLM_PROVIDER", cls.llm_provider),
+            llm_model=os.getenv("LLM_MODEL", cls.llm_model),
+            llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", str(cls.llm_timeout_seconds))),
+            llm_max_tokens=int(os.getenv("LLM_MAX_TOKENS", str(cls.llm_max_tokens))),
+            llm_temperature=float(os.getenv("LLM_TEMPERATURE", str(cls.llm_temperature))),
+            llm_circuit_breaker_failure_threshold=int(
+                os.getenv(
+                    "LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+                    str(cls.llm_circuit_breaker_failure_threshold),
+                )
+            ),
+            llm_circuit_breaker_timeout_seconds=float(
+                os.getenv(
+                    "LLM_CIRCUIT_BREAKER_TIMEOUT_SECONDS",
+                    str(cls.llm_circuit_breaker_timeout_seconds),
+                )
+            ),
+            openai_api_key=os.getenv("OPENAI_API_KEY", cls.openai_api_key),
+            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", cls.anthropic_api_key),
         )

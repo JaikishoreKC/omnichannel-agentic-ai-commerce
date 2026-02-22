@@ -132,3 +132,167 @@ def test_interaction_parallel_multi_status() -> None:
     assert "cart" in payload["data"]
     assert "order" in payload["data"]
 
+
+def test_interaction_single_message_search_and_add_to_cart() -> None:
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    response = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "find running shoes under $150 and add to cart",
+            "channel": "web",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()["payload"]
+    assert payload["agent"] == "orchestrator"
+    assert "product" in payload["data"]
+    assert "cart" in payload["data"]
+
+    cart = client.get("/v1/cart", headers={"X-Session-Id": session_id})
+    assert cart.status_code == 200
+    assert cart.json()["itemCount"] >= 1
+
+
+def test_interaction_apply_discount_code() -> None:
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    seed = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "find running shoes and add to cart",
+            "channel": "web",
+        },
+    )
+    assert seed.status_code == 200
+
+    discount = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "apply discount code SAVE20",
+            "channel": "web",
+        },
+    )
+    assert discount.status_code == 200
+    payload = discount.json()["payload"]
+    assert payload["agent"] == "cart"
+    assert "saved" in payload["message"].lower()
+
+    cart = client.get("/v1/cart", headers={"X-Session-Id": session_id})
+    assert cart.status_code == 200
+    assert float(cart.json()["discount"]) > 0.0
+
+
+def test_interaction_order_issue_phrase_routes_to_order_agent() -> None:
+    client = TestClient(app)
+    session_id = _create_session(client)
+    auth = client.post(
+        "/v1/auth/register",
+        headers={"X-Session-Id": session_id},
+        json={
+            "email": "order-issue@example.com",
+            "password": "SecurePass123!",
+            "name": "Order Issue User",
+        },
+    )
+    assert auth.status_code == 201
+    token = auth.json()["accessToken"]
+    auth_header = {"Authorization": f"Bearer {token}", "X-Session-Id": session_id}
+
+    add_item = client.post(
+        "/v1/cart/items",
+        headers=auth_header,
+        json={"productId": "prod_001", "variantId": "var_001", "quantity": 1},
+    )
+    assert add_item.status_code == 201
+
+    order = client.post(
+        "/v1/orders",
+        headers={**auth_header, "Idempotency-Key": "order-issue-key-1"},
+        json={
+            "shippingAddress": {
+                "name": "Issue User",
+                "line1": "100 Market St",
+                "city": "Austin",
+                "state": "TX",
+                "postalCode": "78701",
+                "country": "US",
+            },
+            "paymentMethod": {"type": "card", "token": "pm_issue"},
+        },
+    )
+    assert order.status_code == 201
+
+    issue = client.post(
+        "/v1/interactions/message",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"sessionId": session_id, "content": "my order hasn't arrived yet", "channel": "web"},
+    )
+    assert issue.status_code == 200
+    payload = issue.json()["payload"]
+    assert payload["agent"] == "order"
+    assert "latest order" in payload["message"].lower()
+
+
+def test_interaction_change_order_address_when_allowed() -> None:
+    client = TestClient(app)
+    session_id = _create_session(client)
+    auth = client.post(
+        "/v1/auth/register",
+        headers={"X-Session-Id": session_id},
+        json={
+            "email": "address-change@example.com",
+            "password": "SecurePass123!",
+            "name": "Address User",
+        },
+    )
+    assert auth.status_code == 201
+    token = auth.json()["accessToken"]
+    auth_header = {"Authorization": f"Bearer {token}", "X-Session-Id": session_id}
+
+    add_item = client.post(
+        "/v1/cart/items",
+        headers=auth_header,
+        json={"productId": "prod_001", "variantId": "var_001", "quantity": 1},
+    )
+    assert add_item.status_code == 201
+
+    order = client.post(
+        "/v1/orders",
+        headers={**auth_header, "Idempotency-Key": "address-change-key-1"},
+        json={
+            "shippingAddress": {
+                "name": "Address User",
+                "line1": "100 Market St",
+                "city": "Austin",
+                "state": "TX",
+                "postalCode": "78701",
+                "country": "US",
+            },
+            "paymentMethod": {"type": "card", "token": "pm_address"},
+        },
+    )
+    assert order.status_code == 201
+    order_id = order.json()["order"]["id"]
+
+    update = client.post(
+        "/v1/interactions/message",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "sessionId": session_id,
+            "content": (
+                f"change order {order_id} address "
+                "line1=500 Main St, city=Austin, state=TX, postalCode=78702, country=US"
+            ),
+            "channel": "web",
+        },
+    )
+    assert update.status_code == 200
+    payload = update.json()["payload"]
+    assert payload["agent"] == "order"
+    assert payload["data"]["shippingAddress"]["line1"] == "500 Main St"

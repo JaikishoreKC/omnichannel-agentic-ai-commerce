@@ -4,7 +4,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.api.deps import get_current_user
 from app.container import order_service
-from app.models.schemas import CancelOrderRequest, CreateOrderRequest
+from app.models.schemas import (
+    CancelOrderRequest,
+    CreateOrderRequest,
+    RefundOrderRequest,
+    UpdateOrderAddressRequest,
+)
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -48,4 +53,30 @@ def cancel_order(
         user_id=str(user["id"]),
         order_id=order_id,
         reason=payload.reason,
+    )
+
+
+@router.post("/{order_id}/refund")
+def refund_order(
+    order_id: str,
+    payload: RefundOrderRequest,
+    user: dict[str, object] = Depends(get_current_user),
+) -> dict[str, object]:
+    return order_service.request_refund(
+        user_id=str(user["id"]),
+        order_id=order_id,
+        reason=payload.reason,
+    )
+
+
+@router.put("/{order_id}/shipping-address")
+def update_order_shipping_address(
+    order_id: str,
+    payload: UpdateOrderAddressRequest,
+    user: dict[str, object] = Depends(get_current_user),
+) -> dict[str, object]:
+    return order_service.update_shipping_address(
+        user_id=str(user["id"]),
+        order_id=order_id,
+        shipping_address=payload.shippingAddress.model_dump(),
     )

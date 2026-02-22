@@ -40,10 +40,11 @@ export default function App(): JSX.Element {
   const [sessionId, setSessionId] = useState("");
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<
-    Array<{ role: "user" | "assistant"; text: string; agent?: string }>
+    Array<{ role: "user" | "assistant"; text: string; agent?: string; streamId?: string }>
   >([]);
   const [chatActions, setChatActions] = useState<Array<{ label: string; action: string }>>([]);
   const [chatReady, setChatReady] = useState(false);
+  const [assistantTyping, setAssistantTyping] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const connectSocketRef = useRef<(session: string) => void>(() => undefined);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -57,11 +58,32 @@ export default function App(): JSX.Element {
     setCart(cartData);
   }
 
-  function handleChatResponse(payload: ChatResponsePayload): void {
-    setChatMessages((previous) => [
-      ...previous,
-      { role: "assistant", text: payload.message, agent: payload.agent },
-    ]);
+  function handleChatResponse(payload: ChatResponsePayload, streamId?: string): void {
+    setAssistantTyping(false);
+    setChatMessages((previous) => {
+      if (!streamId) {
+        return [...previous, { role: "assistant", text: payload.message, agent: payload.agent }];
+      }
+      const hasExisting = previous.some(
+        (entry) => entry.role === "assistant" && entry.streamId === streamId,
+      );
+      if (!hasExisting) {
+        return [
+          ...previous,
+          {
+            role: "assistant",
+            text: payload.message,
+            agent: payload.agent,
+            streamId,
+          },
+        ];
+      }
+      return previous.map((entry) =>
+        entry.role === "assistant" && entry.streamId === streamId
+          ? { ...entry, text: payload.message, agent: payload.agent }
+          : entry,
+      );
+    });
     setChatActions(payload.suggestedActions ?? []);
 
     const cartPayload = payload.data?.cart as Cart | undefined;
@@ -76,6 +98,38 @@ export default function App(): JSX.Element {
     if (productsPayload && productsPayload.length > 0) {
       setProducts(productsPayload);
     }
+  }
+
+  function handleStreamStart(payload: { streamId: string; agent?: string }): void {
+    setChatMessages((previous) => {
+      const exists = previous.some(
+        (entry) => entry.role === "assistant" && entry.streamId === payload.streamId,
+      );
+      if (exists) {
+        return previous;
+      }
+      return [...previous, { role: "assistant", text: "", agent: payload.agent, streamId: payload.streamId }];
+    });
+  }
+
+  function handleStreamDelta(payload: { streamId: string; delta: string }): void {
+    setChatMessages((previous) =>
+      previous.map((entry) =>
+        entry.role === "assistant" && entry.streamId === payload.streamId
+          ? { ...entry, text: `${entry.text}${payload.delta}` }
+          : entry,
+      ),
+    );
+  }
+
+  function handleStreamEnd(payload: { streamId: string }): void {
+    setChatMessages((previous) =>
+      previous.map((entry) =>
+        entry.role === "assistant" && entry.streamId === payload.streamId
+          ? { ...entry, text: entry.text.trimEnd() }
+          : entry,
+      ),
+    );
   }
 
   useEffect(() => {
@@ -106,14 +160,52 @@ export default function App(): JSX.Element {
           }
           setChatReady(true);
         },
-        onMessage: (payload) => {
+        onMessage: (payload, streamId) => {
           if (socketRef.current !== socket) {
             return;
           }
           if (!active) {
             return;
           }
-          handleChatResponse(payload);
+          handleChatResponse(payload, streamId);
+        },
+        onTyping: (payload) => {
+          if (socketRef.current !== socket) {
+            return;
+          }
+          if (!active) {
+            return;
+          }
+          if (payload.actor === "assistant") {
+            setAssistantTyping(payload.isTyping);
+          }
+        },
+        onStreamStart: (payload) => {
+          if (socketRef.current !== socket) {
+            return;
+          }
+          if (!active) {
+            return;
+          }
+          handleStreamStart(payload);
+        },
+        onStreamDelta: (payload) => {
+          if (socketRef.current !== socket) {
+            return;
+          }
+          if (!active) {
+            return;
+          }
+          handleStreamDelta(payload);
+        },
+        onStreamEnd: (payload) => {
+          if (socketRef.current !== socket) {
+            return;
+          }
+          if (!active) {
+            return;
+          }
+          handleStreamEnd(payload);
         },
         onSession: (resolvedSessionId) => {
           if (!active) {
@@ -129,6 +221,7 @@ export default function App(): JSX.Element {
           if (!active) {
             return;
           }
+          setAssistantTyping(false);
           setChatReady(false);
           setMessage(errorMessage);
         },
@@ -147,6 +240,7 @@ export default function App(): JSX.Element {
           if (!active) {
             return;
           }
+          setAssistantTyping(false);
           setChatReady(false);
           setMessage("Chat disconnected. Reconnecting...");
           reconnectTimerRef.current = window.setTimeout(() => {
@@ -184,6 +278,7 @@ export default function App(): JSX.Element {
         socketRef.current = null;
       }
       setChatReady(false);
+      setAssistantTyping(false);
       connectSocketRef.current = () => undefined;
     };
   }, []);
@@ -285,7 +380,7 @@ export default function App(): JSX.Element {
     socketRef.current.send(
       JSON.stringify({
         type: "message",
-        payload: { content: text, timestamp: new Date().toISOString() },
+        payload: { content: text, timestamp: new Date().toISOString(), stream: true, typing: true },
       }),
     );
   }
@@ -460,11 +555,12 @@ export default function App(): JSX.Element {
               </p>
             )}
             {chatMessages.map((entry, index) => (
-              <div key={`${entry.role}-${index}`} className={`chat-bubble ${entry.role}`}>
+              <div key={`${entry.role}-${entry.streamId ?? index}`} className={`chat-bubble ${entry.role}`}>
                 <strong>{entry.role === "user" ? "You" : entry.agent ?? "Assistant"}:</strong>{" "}
                 {entry.text}
               </div>
             ))}
+            {assistantTyping && <p className="hint">Assistant is typing...</p>}
           </div>
           {chatActions.length > 0 && (
             <div className="chat-actions">

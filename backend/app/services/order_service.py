@@ -146,3 +146,56 @@ class OrderService:
         )
         self.order_repository.update(order)
         return {"success": True, "orderId": order_id, "status": "cancelled"}
+
+    def request_refund(self, user_id: str, order_id: str, reason: str | None) -> dict[str, Any]:
+        order = self.order_repository.get(order_id)
+        if not order or order["userId"] != user_id:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if order["status"] in {"cancelled", "refunded"}:
+            raise HTTPException(status_code=409, detail="Order cannot be refunded in current state")
+
+        order["status"] = "refunded"
+        order["updatedAt"] = self.store.iso_now()
+        payment = order.setdefault("payment", {})
+        payment["status"] = "refunded"
+        order.setdefault("timeline", []).append(
+            {
+                "status": "refunded",
+                "timestamp": order["updatedAt"],
+                "note": reason or "Refund requested by customer",
+            }
+        )
+        self.order_repository.update(order)
+        return {"success": True, "orderId": order_id, "status": "refunded"}
+
+    def update_shipping_address(
+        self,
+        *,
+        user_id: str,
+        order_id: str,
+        shipping_address: dict[str, Any],
+    ) -> dict[str, Any]:
+        order = self.order_repository.get(order_id)
+        if not order or order["userId"] != user_id:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if order["status"] not in {"confirmed", "processing"}:
+            raise HTTPException(
+                status_code=409,
+                detail="Shipping address can only be changed before shipment",
+            )
+
+        order["shippingAddress"] = deepcopy(shipping_address)
+        order["updatedAt"] = self.store.iso_now()
+        order.setdefault("timeline", []).append(
+            {
+                "status": "address_updated",
+                "timestamp": order["updatedAt"],
+            }
+        )
+        self.order_repository.update(order)
+        return {
+            "success": True,
+            "orderId": order_id,
+            "status": order["status"],
+            "shippingAddress": deepcopy(order["shippingAddress"]),
+        }

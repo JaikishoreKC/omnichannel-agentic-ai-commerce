@@ -3,36 +3,97 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.infrastructure.llm_client import LLMClient
 from app.orchestrator.types import IntentResult
 
 
 class IntentClassifier:
     """Lightweight rule-first classifier for commerce intents."""
 
+    def __init__(self, llm_client: LLMClient | None = None) -> None:
+        self.llm_client = llm_client
+
     def classify(self, message: str, context: dict[str, Any] | None = None) -> IntentResult:
+        rule_intent = self._classify_rules(message=message, context=context)
+        llm_choice = self._classify_with_llm(message=message, context=context)
+        if llm_choice is None:
+            return rule_intent
+        if llm_choice.confidence >= max(0.7, rule_intent.confidence):
+            return llm_choice
+        return rule_intent
+
+    def _classify_with_llm(self, *, message: str, context: dict[str, Any] | None) -> IntentResult | None:
+        if self.llm_client is None:
+            return None
+        recent = []
+        if context:
+            raw_recent = context.get("recent", [])
+            if isinstance(raw_recent, list):
+                recent = [item for item in raw_recent if isinstance(item, dict)]
+        prediction = self.llm_client.classify_intent(message=message, recent_messages=recent)
+        if prediction is None:
+            return None
+        return IntentResult(
+            name=prediction.intent,
+            confidence=prediction.confidence,
+            entities=prediction.entities,
+        )
+
+    def _classify_rules(self, *, message: str, context: dict[str, Any] | None = None) -> IntentResult:
         text = message.strip().lower()
         entities: dict[str, Any] = {}
 
         if not text:
             return IntentResult(name="general_question", confidence=0.2, entities={})
 
-        if ("cart" in text or "my cart" in text) and (
-            "order status" in text or "where is my order" in text or "track order" in text
-        ):
+        if ("cart" in text or "my cart" in text) and self._contains_order_status_phrase(text):
             entities.update(self._extract_order_id(text))
             return IntentResult(name="multi_status", confidence=0.9, entities=entities)
 
         # Order intents.
+        if "order" in text and "address" in text and any(token in text for token in ("change", "update", "delivery")):
+            entities.update(self._extract_order_id(text))
+            entities.update(self._extract_shipping_address(message))
+            return IntentResult(name="change_order_address", confidence=0.88, entities=entities)
         if "cancel" in text and "order" in text:
             entities.update(self._extract_order_id(text))
             return IntentResult(name="cancel_order", confidence=0.91, entities=entities)
-        if "order status" in text or "where is my order" in text or "track order" in text:
+        if "refund" in text and "order" in text:
+            entities.update(self._extract_order_id(text))
+            return IntentResult(name="request_refund", confidence=0.9, entities=entities)
+        if self._contains_order_status_phrase(text):
             entities.update(self._extract_order_id(text))
             return IntentResult(name="order_status", confidence=0.9, entities=entities)
         if "checkout" in text or "place order" in text or "buy now" in text:
             return IntentResult(name="checkout", confidence=0.95, entities={})
 
+        if ("add" in text and "cart" in text) and any(
+            token in text
+            for token in (
+                "find",
+                "search",
+                "show me",
+                "recommend",
+                "looking for",
+                "under",
+                "below",
+                "over",
+                "above",
+            )
+        ):
+            entities.update(self._extract_quantity(text))
+            entities.update(self._extract_product_or_variant_id(text))
+            entities.update(self._extract_price_range(text))
+            entities.update(self._extract_color(text))
+            entities["query"] = self._extract_search_query_for_combo(message)
+            return IntentResult(name="search_and_add_to_cart", confidence=0.93, entities=entities)
+
         # Cart intents.
+        if any(token in text for token in ("discount", "coupon", "promo")) and any(
+            token in text for token in ("apply", "use", "code")
+        ):
+            entities.update(self._extract_discount_code(message))
+            return IntentResult(name="apply_discount", confidence=0.9, entities=entities)
         if "remove" in text and "cart" in text:
             entities.update(self._extract_product_or_item_id(text))
             return IntentResult(name="remove_from_cart", confidence=0.88, entities=entities)
@@ -98,3 +159,82 @@ class IntentClassifier:
         if item_match:
             return {"itemId": item_match.group(1).replace("-", "_")}
         return self._extract_product_or_variant_id(text)
+
+    def _contains_order_status_phrase(self, text: str) -> bool:
+        if "order" not in text:
+            return False
+        phrases = (
+            "order status",
+            "where is my order",
+            "track order",
+            "hasn't arrived",
+            "hasnt arrived",
+            "not arrived",
+            "order is late",
+            "order late",
+            "delayed order",
+            "order delayed",
+        )
+        return any(phrase in text for phrase in phrases)
+
+    def _extract_discount_code(self, message: str) -> dict[str, Any]:
+        explicit = re.search(
+            r"(?:code|coupon|promo)\s*(?:is|=|:)?\s*([a-zA-Z0-9_-]{4,20})",
+            message,
+            flags=re.IGNORECASE,
+        )
+        if explicit:
+            return {"code": explicit.group(1).upper()}
+
+        candidates = re.findall(r"\b([A-Za-z0-9]{4,20})\b", message)
+        stop_words = {"APPLY", "DISCOUNT", "COUPON", "PROMO", "CODE", "PLEASE", "THIS", "THAT"}
+        for candidate in candidates:
+            token = candidate.upper()
+            if token not in stop_words and any(char.isdigit() for char in token):
+                return {"code": token}
+        return {}
+
+    def _extract_search_query_for_combo(self, message: str) -> str:
+        cleaned = re.sub(
+            r"\b(and\s+)?(add|put)\b.*\bcart\b",
+            " ",
+            message,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned
+
+    def _extract_shipping_address(self, message: str) -> dict[str, Any]:
+        patterns = {
+            "name": r"name",
+            "line1": r"line1|address|street",
+            "line2": r"line2|apt|suite",
+            "city": r"city",
+            "state": r"state",
+            "postalCode": r"postal\s*code|postalcode|zip",
+            "country": r"country",
+        }
+        fields: dict[str, str] = {}
+        for field, pattern in patterns.items():
+            match = re.search(
+                rf"(?:{pattern})\s*[:=]\s*([^,;]+)",
+                message,
+                flags=re.IGNORECASE,
+            )
+            if match:
+                fields[field] = match.group(1).strip()
+
+        required = {"line1", "city", "state", "postalCode", "country"}
+        if not required.issubset(fields.keys()):
+            return {}
+        shipping = {
+            "name": fields.get("name", "Customer"),
+            "line1": fields["line1"],
+            "city": fields["city"],
+            "state": fields["state"],
+            "postalCode": fields["postalCode"],
+            "country": fields["country"],
+        }
+        if "line2" in fields:
+            shipping["line2"] = fields["line2"]
+        return {"shippingAddress": shipping}

@@ -22,6 +22,7 @@ from app.api.routes.product_routes import router as product_router
 from app.api.routes.session_routes import router as session_router
 from app.container import (
     auth_service,
+    llm_client,
     mongo_manager,
     metrics_collector,
     orchestrator,
@@ -156,6 +157,28 @@ def _path_group(path: str) -> str:
     return _rate_limit_scope(path)
 
 
+def _stream_text_chunks(text: str, max_chars: int = 28) -> list[str]:
+    cleaned = text.strip()
+    if not cleaned:
+        return []
+    words = cleaned.split()
+    if not words:
+        return [cleaned[:max_chars]]
+    chunks: list[str] = []
+    current = ""
+    for word in words:
+        candidate = word if not current else f"{current} {word}"
+        if len(candidate) <= max_chars:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current + " ")
+        current = word
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 @app.middleware("http")
 async def enforce_rate_limits(request: Request, call_next):  # type: ignore[no-untyped-def]
     if request.url.path in {"/health", "/metrics"}:
@@ -222,12 +245,20 @@ async def collect_http_metrics(request: Request, call_next):  # type: ignore[no-
 
 @app.get("/health")
 def health() -> dict[str, object]:
+    llm_snapshot = llm_client.circuit_breaker.snapshot
     return {
         "status": "ok",
         "services": {
             "mongo": {"status": mongo_manager.status, "error": mongo_manager.error},
             "redis": {"status": redis_manager.status, "error": redis_manager.error},
             "statePersistence": {"enabled": state_persistence.enabled},
+            "llm": {
+                "enabled": llm_client.enabled,
+                "provider": settings.llm_provider,
+                "model": settings.llm_model,
+                "circuitBreakerState": llm_snapshot.state,
+                "circuitBreakerFailures": llm_snapshot.failure_count,
+            },
         },
     }
 
@@ -304,13 +335,57 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 except Exception:
                     user_id = None
 
-            response = await orchestrator.process_message(
-                message=message,
-                session_id=session_id,
-                user_id=user_id,
-                channel="websocket",
-            )
+            assistant_typing_requested = bool(payload.get("payload", {}).get("typing", False))
+            if assistant_typing_requested:
+                await websocket.send_json(
+                    {"type": "typing", "payload": {"actor": "assistant", "isTyping": True}}
+                )
+            try:
+                response = await orchestrator.process_message(
+                    message=message,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel="websocket",
+                )
+            finally:
+                if assistant_typing_requested:
+                    await websocket.send_json(
+                        {"type": "typing", "payload": {"actor": "assistant", "isTyping": False}}
+                    )
+            stream_requested = bool(payload.get("payload", {}).get("stream", False))
+            stream_id = f"stream_{int(time() * 1000)}" if stream_requested else ""
+            if stream_requested:
+                chunks = _stream_text_chunks(str(response.get("message", "")))
+                await websocket.send_json(
+                    {
+                        "type": "stream_start",
+                        "payload": {
+                            "streamId": stream_id,
+                            "agent": response.get("agent", "assistant"),
+                        },
+                    }
+                )
+                for chunk in chunks:
+                    await websocket.send_json(
+                        {
+                            "type": "stream_delta",
+                            "payload": {
+                                "streamId": stream_id,
+                                "delta": chunk,
+                            },
+                        }
+                    )
+                    await asyncio.sleep(0.01)
+                await websocket.send_json(
+                    {
+                        "type": "stream_end",
+                        "payload": {"streamId": stream_id},
+                    }
+                )
             await asyncio.to_thread(state_persistence.save, store)
-            await websocket.send_json({"type": "response", "payload": response})
+            envelope: dict[str, object] = {"type": "response", "payload": response}
+            if stream_requested:
+                envelope["streamId"] = stream_id
+            await websocket.send_json(envelope)
     except WebSocketDisconnect:
         return

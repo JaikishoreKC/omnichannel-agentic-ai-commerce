@@ -94,9 +94,13 @@ export interface ChatResponsePayload {
 
 export function connectChat(params: {
   sessionId: string;
-  onMessage: (payload: ChatResponsePayload) => void;
+  onMessage: (payload: ChatResponsePayload, streamId?: string) => void;
   onSession: (sessionId: string) => void;
   onError: (message: string) => void;
+  onTyping?: (payload: { actor?: string; isTyping: boolean }) => void;
+  onStreamStart?: (payload: { streamId: string; agent?: string }) => void;
+  onStreamDelta?: (payload: { streamId: string; delta: string }) => void;
+  onStreamEnd?: (payload: { streamId: string }) => void;
   onOpen?: () => void;
   onClose?: () => void;
 }): WebSocket {
@@ -107,6 +111,7 @@ export function connectChat(params: {
       const parsed = JSON.parse(event.data as string) as {
         type: string;
         sessionId?: string;
+        streamId?: string;
         payload?: any;
       };
       if (parsed.type === "session" && parsed.payload?.sessionId) {
@@ -114,8 +119,35 @@ export function connectChat(params: {
         params.onSession(parsed.payload.sessionId);
         return;
       }
+      if (parsed.type === "typing" && parsed.payload && typeof parsed.payload.isTyping === "boolean") {
+        params.onTyping?.({
+          actor: parsed.payload.actor as string | undefined,
+          isTyping: parsed.payload.isTyping as boolean,
+        });
+        return;
+      }
       if (parsed.type === "response" && parsed.payload) {
-        params.onMessage(parsed.payload as ChatResponsePayload);
+        params.onMessage(parsed.payload as ChatResponsePayload, parsed.streamId);
+        return;
+      }
+      if (parsed.type === "stream_start" && parsed.payload?.streamId) {
+        params.onStreamStart?.({
+          streamId: parsed.payload.streamId as string,
+          agent: parsed.payload.agent as string | undefined,
+        });
+        return;
+      }
+      if (parsed.type === "stream_delta" && parsed.payload?.streamId) {
+        params.onStreamDelta?.({
+          streamId: parsed.payload.streamId as string,
+          delta: parsed.payload.delta as string,
+        });
+        return;
+      }
+      if (parsed.type === "stream_end" && parsed.payload?.streamId) {
+        params.onStreamEnd?.({
+          streamId: parsed.payload.streamId as string,
+        });
         return;
       }
       if (parsed.type === "error") {

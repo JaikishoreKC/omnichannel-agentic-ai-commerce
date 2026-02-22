@@ -499,6 +499,65 @@ Response (200):
 }
 ```
 
+### POST /orders/{orderId}/refund
+
+Protected endpoint.
+
+Request:
+
+```json
+{
+  "reason": "Item did not fit"
+}
+```
+
+Response (200):
+
+```json
+{
+  "success": true,
+  "orderId": "order_xyz789",
+  "status": "refunded"
+}
+```
+
+### PUT /orders/{orderId}/shipping-address
+
+Protected endpoint.
+
+Request:
+
+```json
+{
+  "shippingAddress": {
+    "name": "John Doe",
+    "line1": "500 Main St",
+    "city": "Austin",
+    "state": "TX",
+    "postalCode": "78702",
+    "country": "US"
+  }
+}
+```
+
+Response (200):
+
+```json
+{
+  "success": true,
+  "orderId": "order_xyz789",
+  "status": "confirmed",
+  "shippingAddress": {
+    "name": "John Doe",
+    "line1": "500 Main St",
+    "city": "Austin",
+    "state": "TX",
+    "postalCode": "78702",
+    "country": "US"
+  }
+}
+```
+
 ## Sessions
 
 ### POST /sessions
@@ -565,10 +624,16 @@ Auth should be provided by secure cookie or a short-lived WS token exchange endp
   "type": "message",
   "payload": {
     "content": "I want to buy running shoes",
-    "timestamp": "2026-02-22T10:30:00Z"
+    "timestamp": "2026-02-22T10:30:00Z",
+    "stream": true,
+    "typing": true
   }
 }
 ```
+
+`stream` and `typing` are optional flags.
+- `stream=true` enables response chunk events (`stream_start`, `stream_delta`, `stream_end`).
+- `typing=true` requests assistant typing indicator events (`typing` with `actor=assistant`).
 
 ### Server -> Client Response
 
@@ -592,6 +657,45 @@ Auth should be provided by secure cookie or a short-lived WS token exchange endp
         "action": "cart:add:prod_001:var_001"
       }
     ]
+  }
+}
+```
+
+### Server -> Client Streaming Events (optional)
+
+Client can request streaming by setting `payload.stream=true` in the message event.
+
+`stream_start`:
+
+```json
+{
+  "type": "stream_start",
+  "payload": {
+    "streamId": "stream_1740220200123",
+    "agent": "product"
+  }
+}
+```
+
+`stream_delta`:
+
+```json
+{
+  "type": "stream_delta",
+  "payload": {
+    "streamId": "stream_1740220200123",
+    "delta": "I found two options "
+  }
+}
+```
+
+`stream_end`:
+
+```json
+{
+  "type": "stream_end",
+  "payload": {
+    "streamId": "stream_1740220200123"
   }
 }
 ```

@@ -10,7 +10,7 @@ from app.orchestrator.agent_router import AgentRouter
 from app.orchestrator.context_builder import ContextBuilder
 from app.orchestrator.intent_classifier import IntentClassifier
 from app.orchestrator.response_formatter import ResponseFormatter
-from app.orchestrator.types import AgentExecutionResult, AgentResponse
+from app.orchestrator.types import AgentAction, AgentExecutionResult, AgentResponse
 from app.services.interaction_service import InteractionService
 from app.services.memory_service import MemoryService
 
@@ -66,6 +66,7 @@ class Orchestrator:
                 route_agent_name=route_agent_name,
                 actions=actions,
                 context=context,
+                intent_name=intent.name,
             )
 
         response: AgentResponse = self.formatter.format(
@@ -123,7 +124,15 @@ class Orchestrator:
         route_agent_name: str,
         actions: list[Any],
         context: Any,
+        intent_name: str,
     ) -> tuple[AgentExecutionResult, str]:
+        if intent_name == "search_and_add_to_cart":
+            return await self._execute_search_add_sequence(
+                route_agent_name=route_agent_name,
+                actions=actions,
+                context=context,
+            )
+
         async def run_action(action: Any) -> tuple[str, AgentExecutionResult]:
             agent_name = action.target_agent or route_agent_name
             agent = self.agents[agent_name]
@@ -150,6 +159,79 @@ class Orchestrator:
             ),
             "orchestrator",
         )
+
+    async def _execute_search_add_sequence(
+        self,
+        *,
+        route_agent_name: str,
+        actions: list[Any],
+        context: Any,
+    ) -> tuple[AgentExecutionResult, str]:
+        combined_data: dict[str, Any] = {}
+        messages: list[str] = []
+        suggested: list[dict[str, str]] = []
+        success = True
+        previous_result: AgentExecutionResult | None = None
+
+        for action in actions:
+            effective_action = action
+            if action.name == "add_item":
+                inferred = self._infer_product_selection(previous_result)
+                enriched_params = {**action.params}
+                if not enriched_params.get("productId") and inferred.get("productId"):
+                    enriched_params["productId"] = inferred["productId"]
+                if not enriched_params.get("variantId") and inferred.get("variantId"):
+                    enriched_params["variantId"] = inferred["variantId"]
+                if not enriched_params.get("quantity"):
+                    enriched_params["quantity"] = 1
+                effective_action = AgentAction(
+                    name=action.name,
+                    params=enriched_params,
+                    target_agent=action.target_agent,
+                )
+
+            agent_name = effective_action.target_agent or route_agent_name
+            agent = self.agents[agent_name]
+            result = await asyncio.to_thread(agent.execute, effective_action, context)
+            previous_result = result
+
+            combined_data[agent_name] = result.data
+            messages.append(result.message)
+            suggested.extend(result.next_actions)
+            success = success and result.success
+
+        return (
+            AgentExecutionResult(
+                success=success,
+                message=" ".join(messages),
+                data=combined_data,
+                next_actions=suggested[:6],
+            ),
+            "orchestrator",
+        )
+
+    def _infer_product_selection(
+        self, result: AgentExecutionResult | None
+    ) -> dict[str, str]:
+        if result is None:
+            return {}
+        products = result.data.get("products")
+        if not isinstance(products, list) or not products:
+            return {}
+        first = products[0]
+        if not isinstance(first, dict):
+            return {}
+        variants = first.get("variants")
+        if not isinstance(variants, list) or not variants:
+            return {}
+        first_variant = variants[0]
+        if not isinstance(first_variant, dict):
+            return {}
+        product_id = str(first.get("id", "")).strip()
+        variant_id = str(first_variant.get("id", "")).strip()
+        if not product_id or not variant_id:
+            return {}
+        return {"productId": product_id, "variantId": variant_id}
 
     def _to_transport_payload(self, response: AgentResponse) -> dict[str, Any]:
         payload = asdict(response)

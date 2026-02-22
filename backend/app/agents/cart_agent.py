@@ -112,6 +112,27 @@ class CartAgent(BaseAgent):
                 next_actions=self._cart_next_actions(updated),
             )
 
+        if action.name == "apply_discount":
+            code = str(params.get("code", "")).strip().upper()
+            if not code:
+                return AgentExecutionResult(
+                    success=False,
+                    message="Tell me the discount code to apply, for example: apply code SAVE20.",
+                    data={},
+                )
+            cart = self.cart_service.apply_discount(
+                user_id=user_id,
+                session_id=session_id,
+                discount_code=code,
+            )
+            discount_amount = float(cart.get("discount", 0.0))
+            return AgentExecutionResult(
+                success=True,
+                message=f"Applied {code}. You saved ${discount_amount:.2f}.",
+                data={"cart": cart},
+                next_actions=self._cart_next_actions(cart),
+            )
+
         raise HTTPException(status_code=400, detail=f"Unsupported cart action: {action.name}")
 
     def _infer_from_recent(self, recent: list[dict[str, Any]]) -> dict[str, Any]:
@@ -130,4 +151,3 @@ class CartAgent(BaseAgent):
         if cart["itemCount"] > 0:
             actions.append({"label": "Checkout", "action": "checkout"})
         return actions
-

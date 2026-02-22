@@ -166,7 +166,7 @@ class InMemoryStore:
         inventory: dict[str, dict[str, Any]] = {}
         for product in self.products_by_id.values():
             for variant in product["variants"]:
-                base_qty = 20 if variant.get("inStock", False) else 0
+                base_qty = 200 if variant.get("inStock", False) else 0
                 inventory[variant["id"]] = {
                     "variantId": variant["id"],
                     "productId": product["id"],
