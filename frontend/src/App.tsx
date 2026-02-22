@@ -5,15 +5,17 @@ import {
   checkout,
   connectChat,
   ensureSession,
+  fetchChatHistory,
   fetchProduct,
   fetchCart,
   fetchProducts,
   login,
   type ChatResponsePayload,
   register,
+  setSessionId as setStoredSessionId,
   setToken,
 } from "./api";
-import type { AuthUser, Cart, Product } from "./types";
+import type { AuthUser, Cart, InteractionHistoryMessage, Product } from "./types";
 
 const DEFAULT_CART: Cart = {
   id: "",
@@ -41,6 +43,27 @@ function productIdFromPath(pathname: string): string | null {
   }
 }
 
+type ChatEntry = { role: "user" | "assistant"; text: string; agent?: string; streamId?: string };
+
+function historyToChatEntries(history: InteractionHistoryMessage[]): ChatEntry[] {
+  const output: ChatEntry[] = [];
+  for (const row of history) {
+    const userText = row.message?.trim();
+    if (userText) {
+      output.push({ role: "user", text: userText });
+    }
+    const assistantText = String(row.response?.message ?? "").trim();
+    if (assistantText) {
+      output.push({
+        role: "assistant",
+        text: assistantText,
+        agent: row.response?.agent ?? row.agent ?? "assistant",
+      });
+    }
+  }
+  return output;
+}
+
 export default function App(): JSX.Element {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<Cart>(DEFAULT_CART);
@@ -52,9 +75,7 @@ export default function App(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [chatInput, setChatInput] = useState("");
-  const [chatMessages, setChatMessages] = useState<
-    Array<{ role: "user" | "assistant"; text: string; agent?: string; streamId?: string }>
-  >([]);
+  const [chatMessages, setChatMessages] = useState<ChatEntry[]>([]);
   const [chatActions, setChatActions] = useState<Array<{ label: string; action: string }>>([]);
   const [chatReady, setChatReady] = useState(false);
   const [assistantTyping, setAssistantTyping] = useState(false);
@@ -79,6 +100,19 @@ export default function App(): JSX.Element {
     const [productList, cartData] = await Promise.all([fetchProducts(), fetchCart()]);
     setProducts(productList);
     setCart(cartData);
+  }
+
+  async function reloadChatHistory(targetSessionId: string): Promise<void> {
+    try {
+      const payload = await fetchChatHistory({ sessionId: targetSessionId, limit: 80 });
+      if (payload.sessionId && payload.sessionId !== targetSessionId) {
+        setStoredSessionId(payload.sessionId);
+        setSessionId(payload.sessionId);
+      }
+      setChatMessages(historyToChatEntries(payload.messages ?? []));
+    } catch {
+      // Keep existing chat state when history endpoint is unavailable.
+    }
   }
 
   function navigateTo(pathname: string): void {
@@ -243,7 +277,9 @@ export default function App(): JSX.Element {
             return;
           }
           currentSessionId = resolvedSessionId;
+          setStoredSessionId(resolvedSessionId);
           setSessionId(resolvedSessionId);
+          void reloadChatHistory(resolvedSessionId);
         },
         onError: (errorMessage) => {
           if (socketRef.current !== socket) {
@@ -292,6 +328,7 @@ export default function App(): JSX.Element {
         currentSessionId = createdSessionId;
         setSessionId(createdSessionId);
         await reloadData();
+        await reloadChatHistory(createdSessionId);
         connectSocket(createdSessionId);
       } catch (err) {
         setMessage((err as Error).message);
@@ -364,11 +401,19 @@ export default function App(): JSX.Element {
     setMessage("Creating account...");
     try {
       const payload = await register({ email, password, name });
+      const resolvedSessionId = payload.sessionId || sessionId;
       setToken(payload.accessToken);
+      if (resolvedSessionId) {
+        setStoredSessionId(resolvedSessionId);
+        setSessionId(resolvedSessionId);
+      }
       setUser(payload.user);
       await reloadData();
-      if (sessionId) {
-        connectSocketRef.current(sessionId);
+      if (resolvedSessionId) {
+        await reloadChatHistory(resolvedSessionId);
+      }
+      if (resolvedSessionId) {
+        connectSocketRef.current(resolvedSessionId);
       }
       setMessage("Account created. Guest cart has been attached.");
     } catch (err) {
@@ -383,11 +428,19 @@ export default function App(): JSX.Element {
     setMessage("Signing in...");
     try {
       const payload = await login({ email, password });
+      const resolvedSessionId = payload.sessionId || sessionId;
       setToken(payload.accessToken);
+      if (resolvedSessionId) {
+        setStoredSessionId(resolvedSessionId);
+        setSessionId(resolvedSessionId);
+      }
       setUser(payload.user);
       await reloadData();
-      if (sessionId) {
-        connectSocketRef.current(sessionId);
+      if (resolvedSessionId) {
+        await reloadChatHistory(resolvedSessionId);
+      }
+      if (resolvedSessionId) {
+        connectSocketRef.current(resolvedSessionId);
       }
       setMessage("Signed in. You can now checkout.");
     } catch (err) {

@@ -41,3 +41,9 @@ class InteractionService:
 
     def recent(self, *, session_id: str, limit: int = 12) -> list[dict[str, Any]]:
         return self.interaction_repository.recent(session_id=session_id, limit=limit)
+
+    def history_for_session(self, *, session_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        return self.interaction_repository.list_for_session(session_id=session_id, limit=limit)
+
+    def history_for_user(self, *, user_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        return self.interaction_repository.list_for_user(user_id=user_id, limit=limit)

@@ -22,6 +22,7 @@ from app.api.routes.product_routes import router as product_router
 from app.api.routes.session_routes import router as session_router
 from app.container import (
     auth_service,
+    cart_service,
     llm_client,
     mongo_manager,
     metrics_collector,
@@ -298,6 +299,23 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 user_id = str(session["userId"])
         except Exception:
             user_id = None
+    if user_id:
+        if session_id:
+            cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=user_id)
+        resolved_session = session_service.resolve_user_session(
+            user_id=user_id,
+            preferred_session_id=session_id,
+            channel="websocket",
+        )
+        if str(resolved_session["id"]) != session_id:
+            session_id = str(resolved_session["id"])
+            await asyncio.to_thread(state_persistence.save, store)
+            await websocket.send_json(
+                {
+                    "type": "session",
+                    "payload": {"sessionId": session_id, "expiresAt": resolved_session["expiresAt"]},
+                }
+            )
 
     heartbeat_state = {"last_pong": time()}
     heartbeat_interval = max(0.0, float(settings.ws_heartbeat_interval_seconds))
@@ -377,6 +395,23 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         user_id = str(session["userId"])
                 except Exception:
                     user_id = None
+            if user_id:
+                if session_id:
+                    cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=user_id)
+                resolved_session = session_service.resolve_user_session(
+                    user_id=user_id,
+                    preferred_session_id=session_id,
+                    channel="websocket",
+                )
+                if str(resolved_session["id"]) != session_id:
+                    session_id = str(resolved_session["id"])
+                    await asyncio.to_thread(state_persistence.save, store)
+                    await websocket.send_json(
+                        {
+                            "type": "session",
+                            "payload": {"sessionId": session_id, "expiresAt": resolved_session["expiresAt"]},
+                        }
+                    )
 
             heartbeat_state["last_pong"] = time()
             assistant_typing_requested = bool(payload.get("payload", {}).get("typing", False))

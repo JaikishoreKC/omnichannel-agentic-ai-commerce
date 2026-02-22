@@ -223,6 +223,42 @@ def test_session_repository_count_cached() -> None:
     assert repo.count() == 1
 
 
+def test_session_repository_find_latest_for_user() -> None:
+    from datetime import timedelta
+
+    store = InMemoryStore()
+    mongo_manager, redis_manager = _disabled_managers()
+    repo = SessionRepository(store=store, mongo_manager=mongo_manager, redis_manager=redis_manager)
+    now = store.utc_now()
+
+    repo.create(
+        {
+            "id": "session_user_old",
+            "userId": "user_test_42",
+            "channel": "web",
+            "createdAt": (now - timedelta(minutes=20)).isoformat(),
+            "lastActivity": (now - timedelta(minutes=10)).isoformat(),
+            "expiresAt": (now + timedelta(minutes=20)).isoformat(),
+            "context": {},
+        }
+    )
+    repo.create(
+        {
+            "id": "session_user_new",
+            "userId": "user_test_42",
+            "channel": "web",
+            "createdAt": (now - timedelta(minutes=5)).isoformat(),
+            "lastActivity": now.isoformat(),
+            "expiresAt": (now + timedelta(minutes=30)).isoformat(),
+            "context": {},
+        }
+    )
+
+    latest = repo.find_latest_for_user("user_test_42")
+    assert latest is not None
+    assert latest["id"] == "session_user_new"
+
+
 def test_session_repository_cleanup_expired_sessions() -> None:
     from datetime import timedelta
 

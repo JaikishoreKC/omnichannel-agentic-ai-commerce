@@ -52,6 +52,33 @@ class InteractionRepository:
             return deepcopy(persisted[-safe_limit:])
         return []
 
+    def list_for_session(self, *, session_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        return self.recent(session_id=session_id, limit=limit)
+
+    def list_for_user(self, *, user_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 500))
+        with self.store.lock:
+            cached = [
+                deepcopy(record)
+                for rows in self.store.messages_by_session.values()
+                for record in rows
+                if str(record.get("userId", "")) == user_id
+            ]
+        if cached:
+            cached.sort(key=lambda item: str(item.get("timestamp", "")))
+            return deepcopy(cached[-safe_limit:])
+
+        persisted = self._read_user_from_mongo(user_id)
+        if persisted:
+            with self.store.lock:
+                for row in persisted:
+                    session_id = str(row.get("sessionId", "")).strip()
+                    if not session_id:
+                        continue
+                    self.store.messages_by_session.setdefault(session_id, []).append(deepcopy(row))
+            return deepcopy(persisted[-safe_limit:])
+        return []
+
     def list_by_date(self, *, date_prefix: str) -> list[dict[str, Any]]:
         with self.store.lock:
             cached = [
@@ -147,6 +174,19 @@ class InteractionRepository:
         if collection is None:
             return []
         rows = list(collection.find({"timestamp": {"$regex": f"^{date_prefix}"}}).sort("timestamp", 1))
+        output: list[dict[str, Any]] = []
+        for row in rows:
+            row.pop("_id", None)
+            row.pop("messageId", None)
+            if isinstance(row, dict):
+                output.append(row)
+        return output
+
+    def _read_user_from_mongo(self, user_id: str) -> list[dict[str, Any]]:
+        collection = self._mongo_collection()
+        if collection is None:
+            return []
+        rows = list(collection.find({"userId": user_id}).sort("timestamp", 1))
         output: list[dict[str, Any]] = []
         for row in rows:
             row.pop("_id", None)

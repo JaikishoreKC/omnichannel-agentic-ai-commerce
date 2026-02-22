@@ -37,6 +37,10 @@ class LLMClient:
         "cancel_order",
         "request_refund",
         "multi_status",
+        "show_memory",
+        "save_preference",
+        "forget_preference",
+        "clear_memory",
         "general_question",
     }
 

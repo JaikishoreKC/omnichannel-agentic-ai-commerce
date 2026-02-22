@@ -33,6 +33,7 @@ class AuthResponse(BaseModel):
     accessToken: str
     refreshToken: str
     expiresIn: int
+    sessionId: str | None = None
 
 
 class ProductListQuery(BaseModel):
@@ -99,6 +100,8 @@ class UpdatePreferencesRequest(BaseModel):
     size: str | None = None
     brandPreferences: list[str] | None = None
     categories: list[str] | None = None
+    stylePreferences: list[str] | None = None
+    colorPreferences: list[str] | None = None
     priceRange: dict[str, float] | None = None
 
 

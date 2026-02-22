@@ -32,6 +32,12 @@ class CartRepository:
         self._write_through(cart)
         return deepcopy(cart)
 
+    def delete(self, cart_id: str) -> None:
+        with self.store.lock:
+            self.store.carts_by_id.pop(cart_id, None)
+        self._delete_from_redis(cart_id)
+        self._delete_from_mongo(cart_id)
+
     def get_for_user_or_session(self, *, user_id: str | None, session_id: str) -> dict[str, Any] | None:
         with self.store.lock:
             for cart in self.store.carts_by_id.values():
@@ -93,6 +99,18 @@ class CartRepository:
             {"$set": {"cartId": cart["id"], **deepcopy(cart)}},
             upsert=True,
         )
+
+    def _delete_from_redis(self, cart_id: str) -> None:
+        client = self._redis_client()
+        if client is None:
+            return
+        client.delete(self._redis_key(cart_id))
+
+    def _delete_from_mongo(self, cart_id: str) -> None:
+        collection = self._mongo_collection()
+        if collection is None:
+            return
+        collection.delete_one({"cartId": cart_id})
 
     def _read_from_mongo(self, *, user_id: str | None, session_id: str) -> dict[str, Any] | None:
         collection = self._mongo_collection()

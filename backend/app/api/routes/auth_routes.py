@@ -17,8 +17,13 @@ def register(payload: RegisterRequest, request: Request) -> dict[str, object]:
     )
     session_id = request.headers.get("X-Session-Id") or request.cookies.get("session_id")
     if session_id:
-        cart_service.attach_cart_to_user(session_id=session_id, user_id=result["user"]["id"])
-        session_service.attach_user(session_id=session_id, user_id=result["user"]["id"])
+        cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=str(result["user"]["id"]))
+    resolved = session_service.resolve_user_session(
+        user_id=str(result["user"]["id"]),
+        preferred_session_id=session_id,
+        channel="web",
+    )
+    result["sessionId"] = str(resolved["id"])
     return result
 
 
@@ -27,8 +32,13 @@ def login(payload: LoginRequest, request: Request) -> dict[str, object]:
     result = auth_service.login(email=payload.email, password=payload.password)
     session_id = request.headers.get("X-Session-Id") or request.cookies.get("session_id")
     if session_id:
-        cart_service.attach_cart_to_user(session_id=session_id, user_id=result["user"]["id"])
-        session_service.attach_user(session_id=session_id, user_id=result["user"]["id"])
+        cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=str(result["user"]["id"]))
+    resolved = session_service.resolve_user_session(
+        user_id=str(result["user"]["id"]),
+        preferred_session_id=session_id,
+        channel="web",
+    )
+    result["sessionId"] = str(resolved["id"])
     return result
 
 

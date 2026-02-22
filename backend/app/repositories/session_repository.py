@@ -58,6 +58,31 @@ class SessionRepository:
         self._delete_from_redis(session_id)
         self._delete_from_mongo(session_id)
 
+    def find_latest_for_user(self, user_id: str) -> dict[str, Any] | None:
+        with self.store.lock:
+            matching = [
+                deepcopy(session)
+                for session in self.store.sessions_by_id.values()
+                if str(session.get("userId", "")) == user_id
+            ]
+        if matching:
+            matching.sort(
+                key=lambda session: (
+                    str(session.get("lastActivity", "")),
+                    str(session.get("createdAt", "")),
+                ),
+                reverse=True,
+            )
+            return deepcopy(matching[0])
+
+        persisted = self._read_latest_for_user_from_mongo(user_id)
+        if persisted is not None:
+            with self.store.lock:
+                self.store.sessions_by_id[persisted["id"]] = deepcopy(persisted)
+            self._write_to_redis(persisted)
+            return deepcopy(persisted)
+        return None
+
     def count(self) -> int:
         with self.store.lock:
             cached_count = len(self.store.sessions_by_id)
@@ -130,6 +155,17 @@ class SessionRepository:
         if collection is None:
             return None
         payload = collection.find_one({"sessionId": session_id})
+        if not payload:
+            return None
+        payload.pop("_id", None)
+        payload.pop("sessionId", None)
+        return payload if isinstance(payload, dict) else None
+
+    def _read_latest_for_user_from_mongo(self, user_id: str) -> dict[str, Any] | None:
+        collection = self._mongo_collection()
+        if collection is None:
+            return None
+        payload = collection.find_one({"userId": user_id}, sort=[("lastActivity", -1)])
         if not payload:
             return None
         payload.pop("_id", None)

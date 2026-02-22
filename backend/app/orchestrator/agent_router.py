@@ -26,4 +26,6 @@ class AgentRouter:
             "change_order_address",
         }:
             return "order"
+        if intent.name in {"show_memory", "save_preference", "forget_preference", "clear_memory"}:
+            return "memory"
         return "support"

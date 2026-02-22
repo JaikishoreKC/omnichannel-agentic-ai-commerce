@@ -124,6 +124,48 @@ class CartService:
         self._recalculate_cart(session_cart)
         self.cart_repository.update(session_cart)
 
+    def merge_guest_cart_into_user(self, *, session_id: str, user_id: str) -> dict[str, Any] | None:
+        guest_cart = self.cart_repository.get_for_user_or_session(user_id=None, session_id=session_id)
+        if not guest_cart:
+            return None
+
+        user_cart = self.cart_repository.get_for_user_or_session(user_id=user_id, session_id="")
+        if not user_cart:
+            guest_cart["userId"] = user_id
+            self._recalculate_cart(guest_cart)
+            self.cart_repository.update(guest_cart)
+            return deepcopy(guest_cart)
+
+        by_key: dict[tuple[str, str], dict[str, Any]] = {
+            (str(item["productId"]), str(item["variantId"])): item for item in user_cart["items"]
+        }
+        for source in guest_cart.get("items", []):
+            key = (str(source.get("productId", "")), str(source.get("variantId", "")))
+            if not key[0] or not key[1]:
+                continue
+            existing = by_key.get(key)
+            quantity = max(1, min(50, int(source.get("quantity", 1))))
+            if existing:
+                existing["quantity"] = max(1, min(50, int(existing.get("quantity", 1)) + quantity))
+                continue
+            user_cart["items"].append(
+                {
+                    "itemId": self.store.next_id("item"),
+                    "productId": key[0],
+                    "variantId": key[1],
+                    "name": str(source.get("name", "item")),
+                    "price": float(source.get("price", 0.0)),
+                    "quantity": quantity,
+                    "image": str(source.get("image", "")),
+                }
+            )
+        if not user_cart.get("appliedDiscount") and guest_cart.get("appliedDiscount"):
+            user_cart["appliedDiscount"] = deepcopy(guest_cart["appliedDiscount"])
+        self._recalculate_cart(user_cart)
+        self.cart_repository.update(user_cart)
+        self.cart_repository.delete(str(guest_cart["id"]))
+        return deepcopy(user_cart)
+
     def clear_cart_for_user(self, user_id: str) -> dict[str, Any] | None:
         cart = self.cart_repository.get_for_user_or_session(user_id=user_id, session_id="")
         if not cart:

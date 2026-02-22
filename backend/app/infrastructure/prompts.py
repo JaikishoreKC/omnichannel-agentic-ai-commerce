@@ -18,6 +18,10 @@ Classify the user message into exactly one intent from this list:
 - cancel_order
 - request_refund
 - multi_status
+- show_memory
+- save_preference
+- forget_preference
+- clear_memory
 - general_question
 
 Rules:

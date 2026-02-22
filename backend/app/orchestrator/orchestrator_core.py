@@ -46,6 +46,8 @@ class Orchestrator:
         channel: str,
     ) -> dict[str, Any]:
         recent = self.interaction_service.recent(session_id=session_id, limit=12)
+        if not recent and user_id:
+            recent = self._recent_from_memory(user_id=user_id, limit=12)
         intent = self.intent_classifier.classify(message=message, context={"recent": recent})
         context = self.context_builder.build(
             intent=intent,
@@ -242,3 +244,32 @@ class Orchestrator:
             "suggestedActions": payload["suggested_actions"],
             "metadata": payload["metadata"],
         }
+
+    def _recent_from_memory(self, *, user_id: str, limit: int) -> list[dict[str, Any]]:
+        history = self.memory_service.get_history(user_id=user_id, limit=limit).get("history", [])
+        if not isinstance(history, list):
+            return []
+        recovered: list[dict[str, Any]] = []
+        for row in history:
+            if not isinstance(row, dict):
+                continue
+            summary = row.get("summary", {})
+            if not isinstance(summary, dict):
+                continue
+            query = str(summary.get("query", "")).strip()
+            response_text = str(summary.get("response", "")).strip()
+            if not query and not response_text:
+                continue
+            recovered.append(
+                {
+                    "id": f"memory_{len(recovered)+1}",
+                    "sessionId": "memory",
+                    "userId": user_id,
+                    "message": query,
+                    "intent": str(row.get("type", "")),
+                    "agent": "memory",
+                    "response": {"message": response_text, "agent": "memory"},
+                    "timestamp": str(row.get("timestamp", "")),
+                }
+            )
+        return recovered[-limit:]

@@ -20,7 +20,9 @@ class ProductAgent(BaseAgent):
         query = self._normalize_query(raw_query)
         if self._should_browse_without_query(raw_query=raw_query, normalized_query=query):
             query = ""
-        category = self._infer_category(query) or self._preferred_category(context)
+        inferred_category = self._infer_category(query)
+        preferred_category, preference_reason = self._preferred_category(context=context, query=query)
+        category = inferred_category or preferred_category
         results = self.product_service.list_products(
             query=query or None,
             category=category,
@@ -30,8 +32,9 @@ class ProductAgent(BaseAgent):
             limit=8,
         )
 
-        if "color" in params:
-            color = str(params["color"]).lower()
+        preferred_color = self._preferred_color(context=context)
+        if "color" in params or preferred_color:
+            color = str(params.get("color") or preferred_color).lower()
             filtered_products: list[dict[str, Any]] = []
             for product in results["products"]:
                 if any(v["color"].lower() == color for v in product["variants"]):
@@ -42,10 +45,13 @@ class ProductAgent(BaseAgent):
 
         products = self._sort_with_affinity(results["products"], context=context)
         results["products"] = products
+        reason_snippet = ""
+        if preference_reason:
+            reason_snippet = f" Based on your saved preference for {preference_reason}."
         if not products:
             return AgentExecutionResult(
                 success=True,
-                message="I couldn't find matching products. Want to broaden filters?",
+                message=f"I couldn't find matching products.{reason_snippet} Want to broaden filters?",
                 data={"products": [], "pagination": results["pagination"]},
                 next_actions=[
                     {"label": "Show all products", "action": "search:all"},
@@ -66,7 +72,10 @@ class ProductAgent(BaseAgent):
             )
         return AgentExecutionResult(
             success=True,
-            message=f"I found {len(products)} options. Top result: {top['name']} (${top['price']:.2f}).",
+            message=(
+                f"I found {len(products)} options. Top result: {top['name']} (${top['price']:.2f})."
+                f"{reason_snippet}"
+            ),
             data={"products": products, "pagination": results["pagination"]},
             next_actions=next_actions,
         )
@@ -99,17 +108,32 @@ class ProductAgent(BaseAgent):
             return True
         return normalized_query in {"", "me", "for me"}
 
-    def _preferred_category(self, context: AgentContext) -> str | None:
+    def _preferred_category(self, *, context: AgentContext, query: str) -> tuple[str | None, str]:
         preferences = context.preferences or {}
         preferred_categories = preferences.get("categories") if isinstance(preferences, dict) else None
         if isinstance(preferred_categories, list) and preferred_categories:
-            return str(preferred_categories[0]).strip().lower() or None
+            category = str(preferred_categories[0]).strip().lower() or None
+            return category, f"category {category}" if category else ""
+
+        styles = preferences.get("stylePreferences") if isinstance(preferences, dict) else None
+        if not query and isinstance(styles, list) and styles:
+            if any("denim" == str(style).strip().lower() for style in styles):
+                return "clothing", "style denim"
 
         memory = context.memory or {}
         affinities = memory.get("productAffinities") if isinstance(memory, dict) else None
         category_scores = affinities.get("categories", {}) if isinstance(affinities, dict) else {}
         if isinstance(category_scores, dict) and category_scores:
-            return str(max(category_scores.items(), key=lambda item: int(item[1]))[0]).lower()
+            category = str(max(category_scores.items(), key=lambda item: int(item[1]))[0]).lower()
+            return category, f"your past interest in {category}"
+        return None, ""
+
+    def _preferred_color(self, *, context: AgentContext) -> str | None:
+        preferences = context.preferences or {}
+        colors = preferences.get("colorPreferences") if isinstance(preferences, dict) else None
+        if isinstance(colors, list) and colors:
+            candidate = str(colors[0]).strip().lower()
+            return candidate or None
         return None
 
     def _sort_with_affinity(

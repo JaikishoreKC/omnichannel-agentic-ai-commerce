@@ -54,5 +54,20 @@ export interface AuthResponse {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  sessionId?: string;
 }
 
+export interface InteractionHistoryMessage {
+  id: string;
+  sessionId: string;
+  userId: string | null;
+  message: string;
+  intent: string;
+  agent: string;
+  response: {
+    message?: string;
+    agent?: string;
+    [key: string]: unknown;
+  };
+  timestamp: string;
+}

@@ -67,4 +67,12 @@ class ActionExtractor:
             return [AgentAction(name="request_refund", params=entities)]
         if name == "change_order_address":
             return [AgentAction(name="change_order_address", params=entities)]
+        if name == "show_memory":
+            return [AgentAction(name="show_memory", params={})]
+        if name == "save_preference":
+            return [AgentAction(name="save_preference", params=entities)]
+        if name == "forget_preference":
+            return [AgentAction(name="forget_preference", params=entities)]
+        if name == "clear_memory":
+            return [AgentAction(name="clear_memory", params={})]
         return [AgentAction(name="answer_question", params=entities)]

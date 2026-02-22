@@ -91,3 +91,31 @@ def test_intent_classifier_detects_adjust_quantity_delta() -> None:
     result = classifier.classify("increase quantity of hoodie in cart by 2")
     assert result.name == "adjust_cart_quantity"
     assert result.entities["delta"] == 2
+
+
+def test_intent_classifier_detects_save_preference() -> None:
+    classifier = IntentClassifier()
+    result = classifier.classify("remember I like denim and my size is M")
+    assert result.name == "save_preference"
+    updates = result.entities["updates"]
+    assert "denim" in updates["stylePreferences"]
+    assert updates["size"] == "M"
+
+
+def test_intent_classifier_detects_show_memory() -> None:
+    classifier = IntentClassifier()
+    result = classifier.classify("what do you remember about me")
+    assert result.name == "show_memory"
+
+
+def test_intent_classifier_detects_forget_preference() -> None:
+    classifier = IntentClassifier()
+    result = classifier.classify("forget denim")
+    assert result.name == "forget_preference"
+    assert result.entities["value"] == "denim"
+
+
+def test_intent_classifier_detects_clear_memory() -> None:
+    classifier = IntentClassifier()
+    result = classifier.classify("clear my memory")
+    assert result.name == "clear_memory"

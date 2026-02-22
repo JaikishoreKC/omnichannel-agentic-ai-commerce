@@ -1,4 +1,4 @@
-import type { AuthResponse, Cart, Product } from "./types";
+import type { AuthResponse, Cart, InteractionHistoryMessage, Product } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/v1";
 const WS_BASE = import.meta.env.VITE_WS_URL ?? "ws://localhost:8000/ws";
@@ -25,6 +25,14 @@ function sessionId(): string | null {
 
 export function currentSessionId(): string | null {
   return sessionId();
+}
+
+export function setSessionId(value: string | null): void {
+  if (value) {
+    localStorage.setItem(SESSION_KEY, value);
+    return;
+  }
+  localStorage.removeItem(SESSION_KEY);
 }
 
 async function request<T>(
@@ -80,7 +88,7 @@ export async function ensureSession(): Promise<string> {
     channel: "web",
     initialContext: {},
   });
-  localStorage.setItem(SESSION_KEY, payload.sessionId);
+  setSessionId(payload.sessionId);
   return payload.sessionId;
 }
 
@@ -90,6 +98,11 @@ export interface ChatResponsePayload {
   data: Record<string, unknown>;
   suggestedActions: Array<{ label: string; action: string }>;
   metadata: Record<string, unknown>;
+}
+
+export interface ChatHistoryPayload {
+  sessionId: string;
+  messages: InteractionHistoryMessage[];
 }
 
 export function connectChat(params: {
@@ -115,7 +128,7 @@ export function connectChat(params: {
         payload?: any;
       };
       if (parsed.type === "session" && parsed.payload?.sessionId) {
-        localStorage.setItem(SESSION_KEY, parsed.payload.sessionId);
+        setSessionId(parsed.payload.sessionId);
         params.onSession(parsed.payload.sessionId);
         return;
       }
@@ -184,6 +197,18 @@ export async function fetchProducts(): Promise<Product[]> {
 
 export async function fetchProduct(productId: string): Promise<Product> {
   return request<Product>("GET", `/products/${encodeURIComponent(productId)}`);
+}
+
+export async function fetchChatHistory(input: {
+  sessionId?: string;
+  limit?: number;
+}): Promise<ChatHistoryPayload> {
+  const params = new URLSearchParams();
+  if (input.sessionId) {
+    params.set("sessionId", input.sessionId);
+  }
+  params.set("limit", String(input.limit ?? 60));
+  return request<ChatHistoryPayload>("GET", `/interactions/history?${params.toString()}`);
 }
 
 export async function fetchCart(): Promise<Cart> {

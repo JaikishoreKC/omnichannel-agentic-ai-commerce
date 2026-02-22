@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.core.config import Settings
 from app.agents.cart_agent import CartAgent
+from app.agents.memory_agent import MemoryAgent
 from app.agents.order_agent import OrderAgent
 from app.agents.product_agent import ProductAgent
 from app.agents.support_agent import SupportAgent
@@ -156,6 +157,7 @@ product_agent = ProductAgent(product_service=product_service)
 cart_agent = CartAgent(cart_service=cart_service, product_service=product_service)
 order_agent = OrderAgent(order_service=order_service)
 support_agent = SupportAgent(support_service=support_service)
+memory_agent = MemoryAgent(memory_service=memory_service)
 
 orchestrator = Orchestrator(
     intent_classifier=IntentClassifier(llm_client=llm_client),
@@ -174,5 +176,6 @@ orchestrator = Orchestrator(
         cart_agent.name: cart_agent,
         order_agent.name: order_agent,
         support_agent.name: support_agent,
+        memory_agent.name: memory_agent,
     },
 )

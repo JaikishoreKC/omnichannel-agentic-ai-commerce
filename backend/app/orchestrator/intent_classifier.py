@@ -50,6 +50,18 @@ class IntentClassifier:
             entities.update(self._extract_order_id(text))
             return IntentResult(name="multi_status", confidence=0.9, entities=entities)
 
+        # Memory intents.
+        if self._is_show_memory_request(text):
+            return IntentResult(name="show_memory", confidence=0.93, entities={})
+        if self._is_clear_memory_request(text):
+            return IntentResult(name="clear_memory", confidence=0.92, entities={})
+        forget = self._extract_forget_preference(message)
+        if forget:
+            return IntentResult(name="forget_preference", confidence=0.9, entities=forget)
+        updates = self._extract_preference_updates(message)
+        if updates and self._is_preference_statement(text):
+            return IntentResult(name="save_preference", confidence=0.88, entities={"updates": updates})
+
         # Order intents.
         if "order" in text and "address" in text and any(token in text for token in ("change", "update", "delivery")):
             entities.update(self._extract_order_id(text))
@@ -352,3 +364,120 @@ class IntentClassifier:
                 payload["color"] = color
             items.append(payload)
         return items
+
+    def _is_show_memory_request(self, text: str) -> bool:
+        phrases = (
+            "what do you remember",
+            "show my preferences",
+            "show memory",
+            "what are my preferences",
+            "what do you know about me",
+            "remembered about me",
+        )
+        return any(phrase in text for phrase in phrases)
+
+    def _is_clear_memory_request(self, text: str) -> bool:
+        phrases = (
+            "clear memory",
+            "clear my memory",
+            "forget everything",
+            "reset my preferences",
+            "clear preferences",
+        )
+        return any(phrase in text for phrase in phrases)
+
+    def _is_preference_statement(self, text: str) -> bool:
+        if any(token in text for token in ("remember", "note that", "save preference")):
+            return True
+        if any(token in text for token in ("my size is", "i wear size", "budget", "price range")):
+            return True
+        if "i prefer" in text or "i like" in text:
+            blocking = ("show me", "find", "search", "add to cart", "checkout", "order status")
+            return not any(token in text for token in blocking)
+        return False
+
+    def _extract_preference_updates(self, message: str) -> dict[str, Any]:
+        text = message.strip().lower()
+        updates: dict[str, Any] = {}
+
+        size_match = re.search(r"\b(?:size\s*(?:is|=)?|wear size)\s*(xxs|xs|s|m|l|xl|xxl|\d{1,2})\b", text)
+        if size_match:
+            updates["size"] = size_match.group(1).upper()
+
+        max_match = re.search(r"(?:under|below|max(?:imum)?)\s*\$?(\d+)", text)
+        min_match = re.search(r"(?:over|above|min(?:imum)?)\s*\$?(\d+)", text)
+        if max_match or min_match:
+            price_range: dict[str, float] = {}
+            if min_match:
+                price_range["min"] = float(min_match.group(1))
+            if max_match:
+                price_range["max"] = float(max_match.group(1))
+            updates["priceRange"] = price_range
+
+        categories = []
+        for category in ("shoes", "clothing", "accessories"):
+            if category in text:
+                categories.append(category)
+        if "hoodie" in text or "jogger" in text:
+            categories.append("clothing")
+        if "runner" in text or "sneaker" in text:
+            categories.append("shoes")
+        if categories:
+            updates["categories"] = sorted(set(categories))
+
+        styles = []
+        for style in ("denim", "casual", "formal", "sport", "athleisure", "vintage", "streetwear", "minimal"):
+            if style in text:
+                styles.append(style)
+        if styles:
+            updates["stylePreferences"] = sorted(set(styles))
+
+        colors = []
+        for color in ("black", "blue", "white", "green", "red", "gray", "charcoal", "navy"):
+            if color in text:
+                colors.append(color)
+        if colors:
+            updates["colorPreferences"] = sorted(set(colors))
+
+        brand_match = re.search(r"(?:brand|brands?)\s*(?:is|are|=|:)?\s*([a-z0-9,\s&-]{2,120})", text)
+        if brand_match:
+            chunks = re.split(r"(?:,|and)", brand_match.group(1))
+            brands = [token.strip() for token in chunks if token.strip()]
+            if brands:
+                updates["brandPreferences"] = brands
+
+        if ("i prefer " in text or "i like " in text) and not any(
+            key in updates for key in ("categories", "stylePreferences", "colorPreferences", "brandPreferences")
+        ):
+            suffix = re.split(r"i prefer |i like ", text, maxsplit=1)
+            if len(suffix) == 2:
+                candidate = suffix[1].strip(" .,!?")
+                if candidate:
+                    updates["stylePreferences"] = [candidate.split()[0]]
+
+        return updates
+
+    def _extract_forget_preference(self, message: str) -> dict[str, Any]:
+        text = message.strip().lower()
+        if "forget" not in text and "remove preference" not in text:
+            return {}
+        if "everything" in text or "all preferences" in text:
+            return {"key": "all"}
+
+        if "size" in text:
+            return {"key": "size"}
+        if "price" in text or "budget" in text:
+            return {"key": "priceRange"}
+        if "category" in text or "categories" in text:
+            return {"key": "categories"}
+        if "style" in text:
+            return {"key": "stylePreferences"}
+        if "color" in text:
+            return {"key": "colorPreferences"}
+        if "brand" in text:
+            return {"key": "brandPreferences"}
+
+        for token in ("shoes", "clothing", "accessories", "denim", "black", "blue", "green", "red", "gray"):
+            if token in text:
+                return {"value": token}
+        return {}
