@@ -100,6 +100,14 @@ input {
   font: inherit;
 }
 
+select {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  font: inherit;
+  background: #fff;
+}
+
 .button-row {
   display: flex;
   gap: 0.5rem;
@@ -126,6 +134,12 @@ button:disabled {
   gap: 0.65rem;
 }
 
+.catalog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
 .product-card {
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -148,6 +162,58 @@ button:disabled {
 .product-card p {
   margin: 0 0 0.6rem;
   font-size: 0.9rem;
+}
+
+.secondary-btn {
+  background: linear-gradient(120deg, #4b5f79 0%, #34455c 100%);
+}
+
+.link-btn {
+  color: var(--accent-alt);
+  text-decoration: underline;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.product-detail-page h3 {
+  margin: 0.25rem 0 0.55rem;
+  font-size: 1.2rem;
+}
+
+.product-detail-meta {
+  margin: 0 0 0.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.detail-controls {
+  margin: 0.65rem 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
+}
+
+.variant-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.variant-list li {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 0.45rem 0.55rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
 }
 
 .cart-list {

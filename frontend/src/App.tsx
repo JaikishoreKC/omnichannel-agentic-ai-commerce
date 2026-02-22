@@ -5,6 +5,7 @@ import {
   checkout,
   connectChat,
   ensureSession,
+  fetchProduct,
   fetchCart,
   fetchProducts,
   login,
@@ -28,6 +29,18 @@ const DEFAULT_CART: Cart = {
   currency: "USD",
 };
 
+function productIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/products\/([^/]+)\/?$/);
+  if (!match) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
 export default function App(): JSX.Element {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<Cart>(DEFAULT_CART);
@@ -45,17 +58,35 @@ export default function App(): JSX.Element {
   const [chatActions, setChatActions] = useState<Array<{ label: string; action: string }>>([]);
   const [chatReady, setChatReady] = useState(false);
   const [assistantTyping, setAssistantTyping] = useState(false);
+  const [path, setPath] = useState(() => window.location.pathname);
+  const [detailProduct, setDetailProduct] = useState<Product | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailVariantId, setDetailVariantId] = useState("");
+  const [detailQuantity, setDetailQuantity] = useState(1);
   const socketRef = useRef<WebSocket | null>(null);
   const connectSocketRef = useRef<(session: string) => void>(() => undefined);
   const reconnectTimerRef = useRef<number | null>(null);
   const intentionalSocketCloseRef = useRef(false);
 
   const totalItems = useMemo(() => cart.itemCount, [cart.itemCount]);
+  const selectedProductId = useMemo(() => productIdFromPath(path), [path]);
+  const selectedDetailVariant = useMemo(
+    () => detailProduct?.variants.find((variant) => variant.id === detailVariantId) ?? null,
+    [detailProduct, detailVariantId],
+  );
 
   async function reloadData(): Promise<void> {
     const [productList, cartData] = await Promise.all([fetchProducts(), fetchCart()]);
     setProducts(productList);
     setCart(cartData);
+  }
+
+  function navigateTo(pathname: string): void {
+    if (window.location.pathname === pathname) {
+      return;
+    }
+    window.history.pushState({}, "", pathname);
+    setPath(pathname);
   }
 
   function handleChatResponse(payload: ChatResponsePayload, streamId?: string): void {
@@ -283,6 +314,51 @@ export default function App(): JSX.Element {
     };
   }, []);
 
+  useEffect(() => {
+    const onPopState = () => {
+      setPath(window.location.pathname);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedProductId) {
+      setDetailProduct(null);
+      setDetailVariantId("");
+      setDetailQuantity(1);
+      setDetailLoading(false);
+      return;
+    }
+    let active = true;
+    setDetailLoading(true);
+    (async () => {
+      try {
+        const product = await fetchProduct(selectedProductId);
+        if (!active) {
+          return;
+        }
+        setDetailProduct(product);
+        const firstInStock = product.variants.find((variant) => variant.inStock);
+        setDetailVariantId(firstInStock?.id ?? product.variants[0]?.id ?? "");
+      } catch (err) {
+        if (!active) {
+          return;
+        }
+        setDetailProduct(null);
+        setDetailVariantId("");
+        setMessage((err as Error).message);
+      } finally {
+        if (active) {
+          setDetailLoading(false);
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [selectedProductId]);
+
   async function onRegister(): Promise<void> {
     setBusy(true);
     setMessage("Creating account...");
@@ -337,6 +413,31 @@ export default function App(): JSX.Element {
       const updated = await fetchCart();
       setCart(updated);
       setMessage(`Added ${product.name} to cart.`);
+    } catch (err) {
+      setMessage((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onAddProductFromDetail(): Promise<void> {
+    if (!detailProduct) {
+      return;
+    }
+    if (!detailVariantId) {
+      setMessage("No selectable variant for this product.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await addToCart({
+        productId: detailProduct.id,
+        variantId: detailVariantId,
+        quantity: Math.max(1, detailQuantity),
+      });
+      const updated = await fetchCart();
+      setCart(updated);
+      setMessage(`Added ${detailProduct.name} to cart.`);
     } catch (err) {
       setMessage((err as Error).message);
     } finally {
@@ -469,30 +570,123 @@ export default function App(): JSX.Element {
 
         <section className="panel catalog-panel" data-testid="catalog-panel">
           <div className="panel-header">
-            <h2>Catalog</h2>
-            <span>{products.length} products</span>
+            <h2>{selectedProductId ? "Product Details" : "Catalog"}</h2>
+            <span>{selectedProductId ? selectedProductId : `${products.length} products`}</span>
           </div>
-          <div className="catalog">
-            {products.map((product) => (
-              <article className="product-card" key={product.id}>
-                <div className="product-top">
-                  <p className="category">{product.category}</p>
-                  <p className="price">
-                    ${product.price.toFixed(2)} {product.currency}
+          {!selectedProductId ? (
+            <div className="catalog">
+              {products.map((product) => (
+                <article className="product-card" key={product.id}>
+                  <div className="product-top">
+                    <p className="category">{product.category}</p>
+                    <p className="price">
+                      ${product.price.toFixed(2)} {product.currency}
+                    </p>
+                  </div>
+                  <h3>{product.name}</h3>
+                  <p>{product.description}</p>
+                  <div className="catalog-actions">
+                    <button
+                      data-testid={`add-to-cart-${product.id}`}
+                      disabled={busy}
+                      onClick={() => void onAddProduct(product)}
+                    >
+                      Add to Cart
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      data-testid={`view-product-${product.id}`}
+                      onClick={() => navigateTo(`/products/${encodeURIComponent(product.id)}`)}
+                    >
+                      View details
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="product-detail-page" data-testid="product-detail-page">
+              <button
+                type="button"
+                className="link-btn"
+                data-testid="back-to-catalog"
+                onClick={() => navigateTo("/")}
+              >
+                Back to catalog
+              </button>
+              {detailLoading && <p className="hint">Loading product details...</p>}
+              {!detailLoading && !detailProduct && (
+                <p className="hint" data-testid="product-detail-missing">
+                  Product not found.
+                </p>
+              )}
+              {!detailLoading && detailProduct && (
+                <>
+                  <p className="category">{detailProduct.category}</p>
+                  <h3 data-testid="product-detail-name">{detailProduct.name}</h3>
+                  <p className="product-detail-meta">
+                    <span data-testid="product-detail-price">
+                      ${detailProduct.price.toFixed(2)} {detailProduct.currency}
+                    </span>
+                    <span data-testid="product-detail-rating">Rating {detailProduct.rating.toFixed(1)} / 5</span>
                   </p>
-                </div>
-                <h3>{product.name}</h3>
-                <p>{product.description}</p>
-                <button
-                  data-testid={`add-to-cart-${product.id}`}
-                  disabled={busy}
-                  onClick={() => void onAddProduct(product)}
-                >
-                  Add to Cart
-                </button>
-              </article>
-            ))}
-          </div>
+                  <p data-testid="product-detail-description">{detailProduct.description}</p>
+                  <p className="hint">Product ID: {detailProduct.id}</p>
+                  {detailProduct.images[0] && <p className="hint">Image URL: {detailProduct.images[0]}</p>}
+                  <div className="detail-controls">
+                    <label>
+                      Variant
+                      <select
+                        data-testid="detail-variant-select"
+                        value={detailVariantId}
+                        onChange={(event) => setDetailVariantId(event.target.value)}
+                      >
+                        {detailProduct.variants.map((variant) => (
+                          <option key={variant.id} value={variant.id}>
+                            {variant.size} / {variant.color} ({variant.inStock ? "In stock" : "Out of stock"})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Quantity
+                      <input
+                        data-testid="detail-quantity-input"
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={detailQuantity}
+                        onChange={(event) => {
+                          const parsed = Number.parseInt(event.target.value, 10);
+                          setDetailQuantity(Number.isFinite(parsed) && parsed > 0 ? parsed : 1);
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <ul className="variant-list" data-testid="product-detail-variants">
+                    {detailProduct.variants.map((variant) => (
+                      <li key={variant.id}>
+                        <strong>{variant.id}</strong>
+                        <span>
+                          {variant.size} / {variant.color}
+                        </span>
+                        <span>{variant.inStock ? "In stock" : "Out of stock"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    data-testid="detail-add-to-cart"
+                    disabled={busy || !selectedDetailVariant?.inStock}
+                    onClick={() => void onAddProductFromDetail()}
+                  >
+                    Add to Cart
+                  </button>
+                  {!selectedDetailVariant?.inStock && <p className="hint">Selected variant is out of stock.</p>}
+                </>
+              )}
+            </div>
+          )}
         </section>
 
         <section className="panel cart-panel" data-testid="cart-panel">

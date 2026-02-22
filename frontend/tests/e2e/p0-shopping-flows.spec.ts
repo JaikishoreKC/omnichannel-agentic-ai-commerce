@@ -63,6 +63,25 @@ test("guest cart survives account creation", async ({ page }) => {
   await expect(page.getByTestId("cart-list")).toContainText("Running Shoes Pro");
 });
 
+test("catalog product opens dedicated detail page", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("session-id")).not.toContainText("initializing");
+
+  await page.getByTestId("view-product-prod_001").click();
+  await expect(page).toHaveURL(/\/products\/prod_001$/);
+  await expect(page.getByTestId("product-detail-page")).toBeVisible();
+  await expect(page.getByTestId("product-detail-name")).toContainText("Running Shoes Pro");
+  await expect(page.getByTestId("product-detail-description")).toContainText("High-performance running shoes");
+  await expect(page.getByTestId("product-detail-variants")).toContainText("var_001");
+
+  await page.getByTestId("detail-add-to-cart").click();
+  await expect(page.getByTestId("status-message")).toContainText("Added Running Shoes Pro to cart");
+  await expect(page.getByTestId("cart-item-count")).toContainText("1 items");
+
+  await page.getByTestId("back-to-catalog").click();
+  await expect(page).toHaveURL(/\/$/);
+});
+
 test("authenticated user can checkout from cart", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("session-id")).not.toContainText("initializing");

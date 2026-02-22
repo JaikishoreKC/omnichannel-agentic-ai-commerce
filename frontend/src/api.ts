@@ -182,6 +182,10 @@ export async function fetchProducts(): Promise<Product[]> {
   return payload.products;
 }
 
+export async function fetchProduct(productId: string): Promise<Product> {
+  return request<Product>("GET", `/products/${encodeURIComponent(productId)}`);
+}
+
 export async function fetchCart(): Promise<Cart> {
   return request<Cart>("GET", "/cart");
 }
