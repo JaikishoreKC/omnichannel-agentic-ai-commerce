@@ -4,19 +4,27 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.repositories.inventory_repository import InventoryRepository
+from app.repositories.product_repository import ProductRepository
 from app.store.in_memory import InMemoryStore
 
 
 class InventoryService:
-    def __init__(self, store: InMemoryStore) -> None:
+    def __init__(
+        self,
+        store: InMemoryStore,
+        inventory_repository: InventoryRepository,
+        product_repository: ProductRepository,
+    ) -> None:
         self.store = store
+        self.inventory_repository = inventory_repository
+        self.product_repository = product_repository
 
     def get_variant_inventory(self, variant_id: str) -> dict[str, Any]:
-        with self.store.lock:
-            stock = self.store.inventory_by_variant.get(variant_id)
-            if not stock:
-                raise HTTPException(status_code=404, detail="Inventory variant not found")
-            return dict(stock)
+        stock = self.inventory_repository.get(variant_id)
+        if not stock:
+            raise HTTPException(status_code=404, detail="Inventory variant not found")
+        return dict(stock)
 
     def update_variant_inventory(
         self,
@@ -26,7 +34,7 @@ class InventoryService:
         available_quantity: int | None = None,
     ) -> dict[str, Any]:
         with self.store.lock:
-            stock = self.store.inventory_by_variant.get(variant_id)
+            stock = self.inventory_repository.get(variant_id)
             if not stock:
                 raise HTTPException(status_code=404, detail="Inventory variant not found")
 
@@ -39,6 +47,7 @@ class InventoryService:
             max_reserved = max(0, stock["totalQuantity"] - stock["availableQuantity"])
             stock["reservedQuantity"] = min(stock["reservedQuantity"], max_reserved)
             stock["updatedAt"] = self.store.iso_now()
+            self.inventory_repository.upsert(stock)
             self._sync_variant_stock_flag(variant_id=variant_id, available=stock["availableQuantity"])
             return dict(stock)
 
@@ -53,7 +62,7 @@ class InventoryService:
             for item in items:
                 variant_id = item["variantId"]
                 quantity = int(item["quantity"])
-                stock = self.store.inventory_by_variant.get(variant_id)
+                stock = self.inventory_repository.get(variant_id)
                 if not stock:
                     raise HTTPException(
                         status_code=409,
@@ -69,7 +78,12 @@ class InventoryService:
             for item in items:
                 variant_id = item["variantId"]
                 quantity = int(item["quantity"])
-                stock = self.store.inventory_by_variant[variant_id]
+                stock = self.inventory_repository.get(variant_id)
+                if not stock:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Inventory not found for variant {variant_id}",
+                    )
                 snapshot = {
                     "variantId": variant_id,
                     "reservedQuantity": stock["reservedQuantity"],
@@ -79,6 +93,7 @@ class InventoryService:
                 stock["reservedQuantity"] += quantity
                 stock["availableQuantity"] -= quantity
                 stock["updatedAt"] = self.store.iso_now()
+                self.inventory_repository.upsert(stock)
                 self._sync_variant_stock_flag(variant_id=variant_id, available=stock["availableQuantity"])
 
         return reservations
@@ -88,29 +103,27 @@ class InventoryService:
             for item in items:
                 variant_id = item["variantId"]
                 quantity = int(item["quantity"])
-                stock = self.store.inventory_by_variant.get(variant_id)
+                stock = self.inventory_repository.get(variant_id)
                 if not stock:
                     continue
                 stock["reservedQuantity"] = max(0, stock["reservedQuantity"] - quantity)
                 stock["totalQuantity"] = max(0, stock["totalQuantity"] - quantity)
                 stock["updatedAt"] = self.store.iso_now()
+                self.inventory_repository.upsert(stock)
                 self._sync_variant_stock_flag(variant_id=variant_id, available=stock["availableQuantity"])
 
     def rollback_reservation(self, snapshots: list[dict[str, Any]]) -> None:
         with self.store.lock:
             for snapshot in snapshots:
                 variant_id = snapshot["variantId"]
-                stock = self.store.inventory_by_variant.get(variant_id)
+                stock = self.inventory_repository.get(variant_id)
                 if not stock:
                     continue
                 stock["reservedQuantity"] = snapshot["reservedQuantity"]
                 stock["availableQuantity"] = snapshot["availableQuantity"]
                 stock["updatedAt"] = self.store.iso_now()
+                self.inventory_repository.upsert(stock)
                 self._sync_variant_stock_flag(variant_id=variant_id, available=stock["availableQuantity"])
 
     def _sync_variant_stock_flag(self, *, variant_id: str, available: int) -> None:
-        for product in self.store.products_by_id.values():
-            for variant in product["variants"]:
-                if variant["id"] == variant_id:
-                    variant["inStock"] = available > 0
-                    return
+        self.product_repository.set_variant_stock_flag(variant_id=variant_id, in_stock=available > 0)

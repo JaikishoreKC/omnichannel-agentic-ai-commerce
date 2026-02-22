@@ -15,10 +15,16 @@ from app.infrastructure.persistence_clients import MongoClientManager, RedisClie
 from app.infrastructure.observability import MetricsCollector
 from app.infrastructure.rate_limiter import SlidingWindowRateLimiter
 from app.infrastructure.state_persistence import StatePersistence
+from app.repositories.auth_repository import AuthRepository
 from app.repositories.cart_repository import CartRepository
+from app.repositories.inventory_repository import InventoryRepository
+from app.repositories.interaction_repository import InteractionRepository
 from app.repositories.memory_repository import MemoryRepository
+from app.repositories.notification_repository import NotificationRepository
 from app.repositories.order_repository import OrderRepository
+from app.repositories.product_repository import ProductRepository
 from app.repositories.session_repository import SessionRepository
+from app.repositories.support_repository import SupportRepository
 from app.services.admin_service import AdminService
 from app.services.auth_service import AuthService
 from app.services.cart_service import CartService
@@ -47,8 +53,35 @@ state_persistence = StatePersistence(
 )
 state_persistence.load(store)
 
-auth_service = AuthService(store=store, settings=settings)
-product_service = ProductService(store=store)
+auth_repository = AuthRepository(
+    store=store,
+    mongo_manager=mongo_manager,
+    redis_manager=redis_manager,
+)
+auth_service = AuthService(
+    store=store,
+    settings=settings,
+    auth_repository=auth_repository,
+)
+product_repository = ProductRepository(
+    store=store,
+    mongo_manager=mongo_manager,
+    redis_manager=redis_manager,
+)
+inventory_repository = InventoryRepository(
+    store=store,
+    mongo_manager=mongo_manager,
+    redis_manager=redis_manager,
+)
+notification_repository = NotificationRepository(
+    store=store,
+    mongo_manager=mongo_manager,
+)
+product_service = ProductService(
+    store=store,
+    product_repository=product_repository,
+    inventory_repository=inventory_repository,
+)
 session_repository = SessionRepository(
     store=store,
     mongo_manager=mongo_manager,
@@ -60,16 +93,37 @@ cart_repository = CartRepository(
     mongo_manager=mongo_manager,
     redis_manager=redis_manager,
 )
-cart_service = CartService(store=store, settings=settings, cart_repository=cart_repository)
+cart_service = CartService(
+    store=store,
+    settings=settings,
+    cart_repository=cart_repository,
+    product_repository=product_repository,
+)
 order_repository = OrderRepository(store=store, mongo_manager=mongo_manager)
 memory_repository = MemoryRepository(
     store=store,
     mongo_manager=mongo_manager,
     redis_manager=redis_manager,
 )
-inventory_service = InventoryService(store=store)
+interaction_repository = InteractionRepository(
+    store=store,
+    mongo_manager=mongo_manager,
+    redis_manager=redis_manager,
+)
+support_repository = SupportRepository(
+    store=store,
+    mongo_manager=mongo_manager,
+)
+inventory_service = InventoryService(
+    store=store,
+    inventory_repository=inventory_repository,
+    product_repository=product_repository,
+)
 payment_service = PaymentService(store=store)
-notification_service = NotificationService(store=store)
+notification_service = NotificationService(
+    store=store,
+    notification_repository=notification_repository,
+)
 order_service = OrderService(
     store=store,
     cart_service=cart_service,
@@ -79,9 +133,22 @@ order_service = OrderService(
     order_repository=order_repository,
 )
 memory_service = MemoryService(store=store, memory_repository=memory_repository)
-admin_service = AdminService(store=store)
-interaction_service = InteractionService(store=store)
-support_service = SupportService(store=store)
+admin_service = AdminService(
+    store=store,
+    session_repository=session_repository,
+    order_repository=order_repository,
+    interaction_repository=interaction_repository,
+    support_repository=support_repository,
+    product_repository=product_repository,
+)
+interaction_service = InteractionService(
+    store=store,
+    interaction_repository=interaction_repository,
+)
+support_service = SupportService(
+    store=store,
+    support_repository=support_repository,
+)
 
 product_agent = ProductAgent(product_service=product_service)
 cart_agent = CartAgent(cart_service=cart_service)

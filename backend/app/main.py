@@ -5,7 +5,8 @@ import hashlib
 from contextlib import suppress
 from time import time
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.responses import PlainTextResponse
@@ -51,6 +52,75 @@ app.include_router(session_router, prefix=settings.api_prefix)
 app.include_router(memory_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
 app.include_router(interaction_router, prefix=settings.api_prefix)
+
+
+def _error_code(status_code: int) -> str:
+    codes = {
+        400: "VALIDATION_ERROR",
+        401: "AUTH_REQUIRED",
+        403: "FORBIDDEN",
+        404: "NOT_FOUND",
+        409: "CONFLICT",
+        429: "RATE_LIMITED",
+        500: "INTERNAL_ERROR",
+    }
+    return codes.get(status_code, "INTERNAL_ERROR")
+
+
+@app.exception_handler(HTTPException)
+async def handle_http_exception(_: Request, exc: HTTPException) -> JSONResponse:
+    if isinstance(exc.detail, dict) and isinstance(exc.detail.get("error"), dict):
+        return JSONResponse(status_code=exc.status_code, content=exc.detail)
+
+    message = str(exc.detail) if exc.detail else "Request failed"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": _error_code(exc.status_code),
+                "message": message,
+                "details": [],
+            }
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_validation_exception(_: Request, exc: RequestValidationError) -> JSONResponse:
+    details = []
+    for issue in exc.errors():
+        loc = issue.get("loc", ())
+        field_parts = [str(part) for part in loc[1:]] if len(loc) > 1 else [str(loc[0])] if loc else ["body"]
+        details.append(
+            {
+                "field": ".".join(field_parts),
+                "message": str(issue.get("msg", "Invalid value")),
+            }
+        )
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Invalid request data",
+                "details": details,
+            }
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def handle_unexpected_exception(_: Request, __: Exception) -> JSONResponse:
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "Internal server error",
+                "details": [],
+            }
+        },
+    )
 
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 

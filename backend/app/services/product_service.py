@@ -5,12 +5,21 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.repositories.inventory_repository import InventoryRepository
+from app.repositories.product_repository import ProductRepository
 from app.store.in_memory import InMemoryStore
 
 
 class ProductService:
-    def __init__(self, store: InMemoryStore) -> None:
+    def __init__(
+        self,
+        store: InMemoryStore,
+        product_repository: ProductRepository,
+        inventory_repository: InventoryRepository,
+    ) -> None:
         self.store = store
+        self.product_repository = product_repository
+        self.inventory_repository = inventory_repository
 
     def list_products(
         self,
@@ -26,8 +35,7 @@ class ProductService:
         safe_page = max(1, page)
         safe_limit = min(100, max(1, limit))
 
-        with self.store.lock:
-            products = [deepcopy(item) for item in self.store.products_by_id.values()]
+        products = self.product_repository.list_all()
 
         def matches(item: dict[str, Any]) -> bool:
             if normalized_query:
@@ -59,73 +67,73 @@ class ProductService:
         }
 
     def get_product(self, product_id: str) -> dict[str, Any]:
-        with self.store.lock:
-            product = self.store.products_by_id.get(product_id)
-            if not product:
-                raise HTTPException(status_code=404, detail="Product not found")
-            return deepcopy(product)
+        product = self.product_repository.get(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        return deepcopy(product)
 
     def create_product(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self.store.lock:
             product_id = payload.get("id") or self.store.next_id("item").replace("item", "prod")
-            if product_id in self.store.products_by_id:
-                raise HTTPException(status_code=409, detail="Product ID already exists")
+        if self.product_repository.get(product_id):
+            raise HTTPException(status_code=409, detail="Product ID already exists")
 
-            product = {
-                "id": product_id,
-                "name": payload["name"],
-                "description": payload.get("description", ""),
-                "category": payload["category"],
-                "price": float(payload["price"]),
-                "currency": payload.get("currency", "USD"),
-                "images": list(payload.get("images", [])),
-                "variants": deepcopy(payload.get("variants", [])),
-                "rating": float(payload.get("rating", 0.0)),
-                "reviewCount": int(payload.get("reviewCount", 0)),
-            }
-            self.store.products_by_id[product_id] = product
-            self._sync_variant_inventory(product_id=product_id, variants=product["variants"], replace_existing=False)
+        product = {
+            "id": product_id,
+            "name": payload["name"],
+            "description": payload.get("description", ""),
+            "category": payload["category"],
+            "price": float(payload["price"]),
+            "currency": payload.get("currency", "USD"),
+            "images": list(payload.get("images", [])),
+            "variants": deepcopy(payload.get("variants", [])),
+            "rating": float(payload.get("rating", 0.0)),
+            "reviewCount": int(payload.get("reviewCount", 0)),
+        }
+        self._sync_variant_inventory(product_id=product_id, variants=product["variants"], replace_existing=False)
+        self.product_repository.create(product)
 
-            return deepcopy(product)
+        return deepcopy(product)
 
     def update_product(self, product_id: str, patch: dict[str, Any]) -> dict[str, Any]:
-        with self.store.lock:
-            product = self.store.products_by_id.get(product_id)
-            if not product:
-                raise HTTPException(status_code=404, detail="Product not found")
-            for key in ("name", "description", "category", "price", "currency", "images", "rating", "reviewCount"):
-                if key in patch and patch[key] is not None:
-                    value = patch[key]
-                    if key == "price":
-                        value = float(value)
-                    elif key == "reviewCount":
-                        value = int(value)
-                    elif key == "rating":
-                        value = float(value)
-                    elif key == "images":
-                        value = list(value)
-                    product[key] = value
-            if "variants" in patch and patch["variants"] is not None:
-                product["variants"] = deepcopy(patch["variants"])
-                self._sync_variant_inventory(
-                    product_id=product_id,
-                    variants=product["variants"],
-                    replace_existing=True,
-                )
-            return deepcopy(product)
+        product = self.product_repository.get(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        for key in ("name", "description", "category", "price", "currency", "images", "rating", "reviewCount"):
+            if key in patch and patch[key] is not None:
+                value = patch[key]
+                if key == "price":
+                    value = float(value)
+                elif key == "reviewCount":
+                    value = int(value)
+                elif key == "rating":
+                    value = float(value)
+                elif key == "images":
+                    value = list(value)
+                product[key] = value
+        if "variants" in patch and patch["variants"] is not None:
+            product["variants"] = deepcopy(patch["variants"])
+            self._sync_variant_inventory(
+                product_id=product_id,
+                variants=product["variants"],
+                replace_existing=True,
+            )
+        self.product_repository.update(product)
+        return deepcopy(product)
 
     def delete_product(self, product_id: str) -> None:
-        with self.store.lock:
-            product = self.store.products_by_id.pop(product_id, None)
-            if not product:
-                raise HTTPException(status_code=404, detail="Product not found")
-            for variant in product.get("variants", []):
-                self.store.inventory_by_variant.pop(variant["id"], None)
+        product = self.product_repository.get(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        for variant in product.get("variants", []):
+            variant_id = str(variant.get("id", ""))
+            if variant_id:
+                self.inventory_repository.delete(variant_id)
+        self.product_repository.delete(product_id)
 
     def list_categories(self) -> dict[str, Any]:
-        with self.store.lock:
-            categories = sorted({product["category"] for product in self.store.products_by_id.values()})
-            return {"categories": categories}
+        categories = self.product_repository.list_categories()
+        return {"categories": categories}
 
     def _sync_variant_inventory(
         self,
@@ -136,18 +144,15 @@ class ProductService:
     ) -> None:
         incoming_ids = {variant["id"] for variant in variants}
         if replace_existing:
-            to_delete = [
-                variant_id
-                for variant_id, stock in self.store.inventory_by_variant.items()
-                if stock["productId"] == product_id and variant_id not in incoming_ids
-            ]
+            existing_rows = self.inventory_repository.list_by_product(product_id)
+            to_delete = [str(stock["variantId"]) for stock in existing_rows if stock["variantId"] not in incoming_ids]
             for variant_id in to_delete:
-                self.store.inventory_by_variant.pop(variant_id, None)
+                self.inventory_repository.delete(variant_id)
 
         for variant in variants:
             variant_id = variant["id"]
             inventory = variant.get("inventory") or {}
-            existing = self.store.inventory_by_variant.get(variant_id)
+            existing = self.inventory_repository.get(variant_id)
             if existing:
                 total_quantity = int(inventory.get("totalQuantity", existing["totalQuantity"]))
                 available_quantity = int(
@@ -162,12 +167,14 @@ class ProductService:
             reserved_quantity = max(0, min(reserved_quantity, total_quantity))
             available_quantity = max(0, min(available_quantity, total_quantity - reserved_quantity))
 
-            self.store.inventory_by_variant[variant_id] = {
-                "variantId": variant_id,
-                "productId": product_id,
-                "totalQuantity": total_quantity,
-                "reservedQuantity": reserved_quantity,
-                "availableQuantity": available_quantity,
-                "updatedAt": self.store.iso_now(),
-            }
+            self.inventory_repository.upsert(
+                {
+                    "variantId": variant_id,
+                    "productId": product_id,
+                    "totalQuantity": total_quantity,
+                    "reservedQuantity": reserved_quantity,
+                    "availableQuantity": available_quantity,
+                    "updatedAt": self.store.iso_now(),
+                }
+            )
             variant["inStock"] = available_quantity > 0

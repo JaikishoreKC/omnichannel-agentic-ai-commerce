@@ -67,6 +67,26 @@ class OrderRepository:
                     self.store.orders_by_id[payload["id"]] = deepcopy(payload)
         return [deepcopy(order) for order in orders]
 
+    def list_all(self) -> list[dict[str, Any]]:
+        with self.store.lock:
+            cached = [deepcopy(order) for order in self.store.orders_by_id.values()]
+        if cached:
+            return cached
+
+        collection = self._orders_collection()
+        if collection is None:
+            return []
+        payloads = list(collection.find({}).sort("createdAt", -1))
+        orders: list[dict[str, Any]] = []
+        for payload in payloads:
+            payload.pop("_id", None)
+            payload.pop("orderId", None)
+            if isinstance(payload, dict):
+                orders.append(payload)
+                with self.store.lock:
+                    self.store.orders_by_id[payload["id"]] = deepcopy(payload)
+        return [deepcopy(order) for order in orders]
+
     def get_idempotent(self, key: str) -> str | None:
         with self.store.lock:
             order_id = self.store.idempotency_keys.get(key)

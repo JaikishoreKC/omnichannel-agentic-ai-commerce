@@ -3,12 +3,18 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from app.repositories.support_repository import SupportRepository
 from app.store.in_memory import InMemoryStore
 
 
 class SupportService:
-    def __init__(self, store: InMemoryStore) -> None:
+    def __init__(
+        self,
+        store: InMemoryStore,
+        support_repository: SupportRepository,
+    ) -> None:
         self.store = store
+        self.support_repository = support_repository
 
     def create_ticket(
         self,
@@ -28,6 +34,5 @@ class SupportService:
             "createdAt": self.store.iso_now(),
             "updatedAt": self.store.iso_now(),
         }
-        with self.store.lock:
-            self.store.support_tickets.append(ticket)
+        self.support_repository.create(ticket)
         return deepcopy(ticket)

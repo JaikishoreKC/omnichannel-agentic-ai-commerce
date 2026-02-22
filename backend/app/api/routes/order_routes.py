@@ -9,7 +9,7 @@ from app.models.schemas import CancelOrderRequest, CreateOrderRequest
 router = APIRouter(prefix="/orders", tags=["orders"])
 
 
-@router.post("")
+@router.post("", status_code=201)
 def create_order(
     payload: CreateOrderRequest,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
@@ -49,4 +49,3 @@ def cancel_order(
         order_id=order_id,
         reason=payload.reason,
     )
-

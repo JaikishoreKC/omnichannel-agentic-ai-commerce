@@ -58,6 +58,17 @@ class SessionRepository:
         self._delete_from_redis(session_id)
         self._delete_from_mongo(session_id)
 
+    def count(self) -> int:
+        with self.store.lock:
+            cached_count = len(self.store.sessions_by_id)
+        if cached_count:
+            return cached_count
+
+        collection = self._mongo_collection()
+        if collection is None:
+            return 0
+        return int(collection.count_documents({}))
+
     def _write_through(self, session: dict[str, Any]) -> None:
         self._write_to_redis(session)
         self._write_to_mongo(session)

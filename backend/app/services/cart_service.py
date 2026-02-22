@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from app.core.config import Settings
 from app.repositories.cart_repository import CartRepository
+from app.repositories.product_repository import ProductRepository
 from app.store.in_memory import InMemoryStore
 
 
@@ -16,10 +17,12 @@ class CartService:
         store: InMemoryStore,
         settings: Settings,
         cart_repository: CartRepository,
+        product_repository: ProductRepository,
     ) -> None:
         self.store = store
         self.settings = settings
         self.cart_repository = cart_repository
+        self.product_repository = product_repository
 
     def get_cart(self, user_id: str | None, session_id: str) -> dict[str, Any]:
         cart = self._get_or_create_cart(user_id=user_id, session_id=session_id)
@@ -150,14 +153,13 @@ class CartService:
     def _resolve_product_variant(
         self, product_id: str, variant_id: str
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        with self.store.lock:
-            product = self.store.products_by_id.get(product_id)
-            if not product:
-                raise HTTPException(status_code=404, detail="Product not found")
-            variant = next((v for v in product["variants"] if v["id"] == variant_id), None)
-            if not variant:
-                raise HTTPException(status_code=404, detail="Variant not found")
-            return product, variant
+        product = self.product_repository.get(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        variant = next((v for v in product["variants"] if v["id"] == variant_id), None)
+        if not variant:
+            raise HTTPException(status_code=404, detail="Variant not found")
+        return product, variant
 
     def _recalculate_cart(self, cart: dict[str, Any]) -> None:
         subtotal = sum(item["price"] * item["quantity"] for item in cart["items"])
