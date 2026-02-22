@@ -38,6 +38,20 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
+## Mongo Setup Scripts
+
+```bash
+cd backend
+python -m app.scripts.create_indexes
+python -m app.scripts.bootstrap_db
+```
+
+Notes:
+
+- `create_indexes` ensures query indexes for all repository-backed Mongo collections.
+- `bootstrap_db` seeds admin user/catalog/inventory and writes `runtime_state` snapshot.
+- Both scripts read `MONGODB_URI` from environment by default.
+
 ## Run Frontend
 
 ```bash
