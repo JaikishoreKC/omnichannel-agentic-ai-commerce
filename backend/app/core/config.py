@@ -19,6 +19,14 @@ class Settings:
     enable_external_services: bool = False
     rate_limit_anonymous_per_minute: int = 120
     rate_limit_authenticated_per_minute: int = 600
+    rate_limit_admin_per_minute: int = 2000
+    request_max_body_bytes: int = 10 * 1024 * 1024
+    session_cookie_secure: bool = True
+    session_cookie_samesite: str = "lax"
+    enforce_json_content_type: bool = True
+    reject_duplicate_critical_headers: bool = True
+    admin_mfa_required: bool = False
+    admin_mfa_static_code: str = ""
     llm_enabled: bool = False
     llm_provider: str = "openai"
     llm_model: str = "gpt-4o-mini"
@@ -36,6 +44,8 @@ class Settings:
     superu_api_key: str = ""
     superu_assistant_id: str = ""
     superu_from_phone_number: str = ""
+    superu_webhook_secret: str = ""
+    superu_webhook_tolerance_seconds: int = 300
     voice_recovery_scheduler_enabled: bool = False
     voice_recovery_scan_interval_seconds: float = 30.0
     voice_abandonment_minutes: int = 30
@@ -95,6 +105,23 @@ class Settings:
                     str(cls.rate_limit_authenticated_per_minute),
                 )
             ),
+            rate_limit_admin_per_minute=int(
+                os.getenv("RATE_LIMIT_ADMIN_PER_MINUTE", str(cls.rate_limit_admin_per_minute))
+            ),
+            request_max_body_bytes=int(
+                os.getenv("REQUEST_MAX_BODY_BYTES", str(cls.request_max_body_bytes))
+            ),
+            session_cookie_secure=os.getenv("SESSION_COOKIE_SECURE", "true").lower()
+            in {"1", "true", "yes"},
+            session_cookie_samesite=os.getenv("SESSION_COOKIE_SAMESITE", cls.session_cookie_samesite),
+            enforce_json_content_type=os.getenv("ENFORCE_JSON_CONTENT_TYPE", "true").lower()
+            in {"1", "true", "yes"},
+            reject_duplicate_critical_headers=os.getenv(
+                "REJECT_DUPLICATE_CRITICAL_HEADERS", "true"
+            ).lower()
+            in {"1", "true", "yes"},
+            admin_mfa_required=os.getenv("ADMIN_MFA_REQUIRED", "false").lower() in {"1", "true", "yes"},
+            admin_mfa_static_code=os.getenv("ADMIN_MFA_STATIC_CODE", cls.admin_mfa_static_code),
             llm_enabled=os.getenv("LLM_ENABLED", "false").lower() in {"1", "true", "yes"},
             llm_provider=os.getenv("LLM_PROVIDER", cls.llm_provider),
             llm_model=os.getenv("LLM_MODEL", cls.llm_model),
@@ -132,6 +159,13 @@ class Settings:
             superu_api_key=os.getenv("SUPERU_API_KEY", cls.superu_api_key),
             superu_assistant_id=os.getenv("SUPERU_ASSISTANT_ID", cls.superu_assistant_id),
             superu_from_phone_number=os.getenv("SUPERU_FROM_PHONE_NUMBER", cls.superu_from_phone_number),
+            superu_webhook_secret=os.getenv("SUPERU_WEBHOOK_SECRET", cls.superu_webhook_secret),
+            superu_webhook_tolerance_seconds=int(
+                os.getenv(
+                    "SUPERU_WEBHOOK_TOLERANCE_SECONDS",
+                    str(cls.superu_webhook_tolerance_seconds),
+                )
+            ),
             voice_recovery_scheduler_enabled=os.getenv("VOICE_RECOVERY_SCHEDULER_ENABLED", "false").lower()
             in {"1", "true", "yes"},
             voice_recovery_scan_interval_seconds=float(

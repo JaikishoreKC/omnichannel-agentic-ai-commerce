@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
+from time import time
 from typing import Any
 
 import httpx
@@ -58,6 +62,49 @@ class SuperUClient:
         payload = self._request(method="GET", path="/api/v1/call/logs", params=params)
         return self._extract_rows(payload)
 
+    def verify_webhook_signature(
+        self,
+        *,
+        raw_body: bytes,
+        signature_header: str | None,
+        timestamp_header: str | None,
+        now_epoch: int | None = None,
+    ) -> None:
+        secret = str(self.settings.superu_webhook_secret or "").strip()
+        if not secret:
+            raise ValueError("SuperU webhook secret is not configured")
+
+        if not signature_header:
+            raise ValueError("Missing webhook signature header")
+        if not timestamp_header:
+            raise ValueError("Missing webhook timestamp header")
+
+        try:
+            timestamp = int(str(timestamp_header).strip())
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Invalid webhook timestamp") from exc
+
+        now_value = int(now_epoch) if now_epoch is not None else int(time())
+        tolerance = max(1, int(self.settings.superu_webhook_tolerance_seconds))
+        if abs(now_value - timestamp) > tolerance:
+            raise ValueError("Webhook timestamp is outside the allowed tolerance")
+
+        signature_value = str(signature_header).strip()
+        if "=" in signature_value:
+            _, signature_value = signature_value.split("=", 1)
+        normalized_signature = signature_value.strip().lower()
+        if not normalized_signature:
+            raise ValueError("Missing webhook signature value")
+
+        signed_payload = str(timestamp).encode("utf-8") + b"." + raw_body
+        expected_signature = hmac.new(
+            secret.encode("utf-8"),
+            signed_payload,
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(expected_signature, normalized_signature):
+            raise ValueError("Invalid webhook signature")
+
     def _request(
         self,
         *,
@@ -97,3 +144,11 @@ class SuperUClient:
             if isinstance(rows, list):
                 return [row for row in rows if isinstance(row, dict)]
         return [payload]
+
+    @staticmethod
+    def payload_fingerprint(payload: dict[str, Any]) -> str:
+        try:
+            canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        except Exception:
+            canonical = str(payload)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

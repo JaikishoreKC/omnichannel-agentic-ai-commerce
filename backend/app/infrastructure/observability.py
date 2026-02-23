@@ -30,6 +30,7 @@ class MetricsCollector:
         self._http_latency_count: dict[tuple[str, str], int] = {}
         self._http_latency_bucket_count: dict[tuple[str, str, str], int] = {}
         self._checkout_total: dict[str, int] = {"success": 0, "failed": 0}
+        self._security_events_total: dict[tuple[str, str], int] = {}
 
     def record_http(
         self,
@@ -62,6 +63,13 @@ class MetricsCollector:
         with self._lock:
             key = "success" if success else "failed"
             self._checkout_total[key] = self._checkout_total.get(key, 0) + 1
+
+    def record_security_event(self, *, event_type: str, severity: str) -> None:
+        normalized_event = str(event_type).strip().lower() or "unknown"
+        normalized_severity = str(severity).strip().lower() or "info"
+        with self._lock:
+            key = (normalized_event, normalized_severity)
+            self._security_events_total[key] = self._security_events_total.get(key, 0) + 1
 
     def render_prometheus(self) -> str:
         with self._lock:
@@ -102,6 +110,13 @@ class MetricsCollector:
             lines.append("# TYPE commerce_checkout_total counter")
             for result, count in sorted(self._checkout_total.items()):
                 lines.append(f'commerce_checkout_total{{result="{result}"}} {count}')
+
+            lines.append("# HELP commerce_security_events_total Security events by type and severity.")
+            lines.append("# TYPE commerce_security_events_total counter")
+            for (event_type, severity), count in sorted(self._security_events_total.items()):
+                lines.append(
+                    f'commerce_security_events_total{{event_type="{event_type}",severity="{severity}"}} {count}'
+                )
 
             return "\n".join(lines) + "\n"
 

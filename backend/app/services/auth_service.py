@@ -55,7 +55,7 @@ class AuthService:
             self.auth_repository.create_user(user)
             return self._issue_tokens(user)
 
-    def login(self, email: str, password: str) -> dict[str, Any]:
+    def login(self, email: str, password: str, otp: str | None = None) -> dict[str, Any]:
         normalized_email = email.strip().lower()
         with self.store.lock:
             user = self.auth_repository.get_user_by_email(normalized_email)
@@ -64,6 +64,12 @@ class AuthService:
 
             if not verify_password(password, user["passwordHash"]):
                 raise HTTPException(status_code=401, detail="Invalid credentials")
+
+            if str(user.get("role", "")).lower() == "admin" and self.settings.admin_mfa_required:
+                supplied = str(otp or "").strip()
+                expected = str(self.settings.admin_mfa_static_code or "").strip()
+                if not supplied or not expected or supplied != expected:
+                    raise HTTPException(status_code=401, detail="Admin OTP required")
 
             user["lastLoginAt"] = datetime.now(dt_timezone.utc).isoformat()
             self.auth_repository.update_user(user)

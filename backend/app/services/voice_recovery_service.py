@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import hashlib
+import json
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -466,6 +468,116 @@ class VoiceRecoveryService:
                 updates += 1
         return updates
 
+    def ingest_provider_callback(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        provider_call_id = self._extract_provider_call_id(payload)
+        if not provider_call_id:
+            return {
+                "accepted": False,
+                "matched": False,
+                "idempotent": False,
+                "reason": "missing_provider_call_id",
+            }
+
+        matched_call_id: str | None = None
+        with self.store.lock:
+            for call in self.store.voice_calls_by_id.values():
+                if str(call.get("providerCallId", "")).strip() == provider_call_id:
+                    matched_call_id = str(call.get("id", "")).strip() or None
+                    break
+        if not matched_call_id:
+            return {
+                "accepted": True,
+                "matched": False,
+                "idempotent": False,
+                "reason": "call_not_found",
+                "providerCallId": provider_call_id,
+            }
+
+        event_key = self._provider_event_key(payload)
+        with self.store.lock:
+            current = deepcopy(self.store.voice_calls_by_id.get(matched_call_id))
+        if not isinstance(current, dict):
+            return {
+                "accepted": True,
+                "matched": False,
+                "idempotent": False,
+                "reason": "call_not_found",
+                "providerCallId": provider_call_id,
+            }
+
+        seen_keys = {
+            str(value).strip()
+            for value in current.get("providerEventKeys", [])
+            if isinstance(value, str) and value.strip()
+        }
+        if event_key in seen_keys:
+            return {
+                "accepted": True,
+                "matched": True,
+                "idempotent": True,
+                "callId": matched_call_id,
+                "providerCallId": provider_call_id,
+                "status": str(current.get("status", "")),
+                "outcome": str(current.get("outcome", "")),
+            }
+
+        normalized_status = self._normalize_provider_status(payload)
+        outcome = self._extract_outcome(payload)
+        if normalized_status in {"completed", "failed"}:
+            self._update_call_terminal(
+                call_id=matched_call_id,
+                status=normalized_status,
+                outcome=outcome,
+                payload=payload,
+            )
+        else:
+            self._update_call_progress(
+                call_id=matched_call_id,
+                status=normalized_status,
+                payload=payload,
+            )
+
+        with self.store.lock:
+            latest = deepcopy(self.store.voice_calls_by_id.get(matched_call_id))
+            if isinstance(latest, dict):
+                keys = [
+                    str(value).strip()
+                    for value in latest.get("providerEventKeys", [])
+                    if isinstance(value, str) and value.strip()
+                ]
+                if event_key not in keys:
+                    keys.append(event_key)
+                if len(keys) > 200:
+                    keys = keys[-200:]
+                latest["providerEventKeys"] = keys
+
+                events = latest.get("providerEvents", [])
+                if not isinstance(events, list):
+                    events = []
+                events.append(
+                    {
+                        "key": event_key,
+                        "status": normalized_status,
+                        "outcome": outcome,
+                        "receivedAt": self.store.iso_now(),
+                    }
+                )
+                if len(events) > 200:
+                    events = events[-200:]
+                latest["providerEvents"] = events
+                latest["updatedAt"] = self.store.iso_now()
+                self.store.voice_calls_by_id[matched_call_id] = deepcopy(latest)
+
+        return {
+            "accepted": True,
+            "matched": True,
+            "idempotent": False,
+            "callId": matched_call_id,
+            "providerCallId": provider_call_id,
+            "status": normalized_status,
+            "outcome": outcome,
+        }
+
     def _evaluate_alerts(self, *, now: datetime) -> int:
         generated = 0
         settings = self.get_settings()
@@ -565,6 +677,8 @@ class VoiceRecoveryService:
             "attempts": [],
             "provider": "superu",
             "providerCallId": None,
+            "providerEventKeys": [],
+            "providerEvents": [],
             "scriptVersion": str(settings.get("scriptVersion", "v1")),
             "campaign": {
                 "itemCount": item_count,
@@ -883,17 +997,49 @@ class VoiceRecoveryService:
 
     def _extract_provider_call_id(self, payload: dict[str, Any]) -> str | None:
         direct_keys = ("call_id", "callId", "id", "uuid")
-        for key in direct_keys:
+        containers: list[dict[str, Any]] = [payload]
+        for key in ("data", "call", "payload"):
+            nested = payload.get(key)
+            if isinstance(nested, dict):
+                containers.append(nested)
+        for container in containers:
+            for key in direct_keys:
+                value = container.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return None
+
+    def _extract_provider_event_id(self, payload: dict[str, Any]) -> str | None:
+        keys = ("event_id", "eventId", "webhook_id", "webhookId", "message_id", "messageId")
+        for key in keys:
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
         data = payload.get("data")
         if isinstance(data, dict):
-            for key in direct_keys:
+            for key in keys:
                 value = data.get(key)
                 if isinstance(value, str) and value.strip():
                     return value.strip()
         return None
+
+    def _provider_event_key(self, payload: dict[str, Any]) -> str:
+        event_id = self._extract_provider_event_id(payload)
+        if event_id:
+            return event_id
+        fingerprint_fn = getattr(self.superu_client, "payload_fingerprint", None)
+        if callable(fingerprint_fn):
+            try:
+                value = str(fingerprint_fn(payload)).strip()
+                if value:
+                    return value
+            except Exception:
+                pass
+        try:
+            canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        except Exception:
+            canonical = str(payload)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def _normalize_provider_status(self, payload: dict[str, Any]) -> str:
         raw = (

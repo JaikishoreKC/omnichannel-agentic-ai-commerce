@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import Depends, Header, HTTPException, Request, Response
 
-from app.container import auth_service, session_service
+from app.container import auth_service, session_service, settings
 
 
 def _extract_bearer_token(request: Request) -> str | None:
@@ -68,7 +68,7 @@ def resolve_session_id(
         key="session_id",
         value=session_id,
         httponly=True,
-        secure=False,
-        samesite="lax",
+        secure=bool(settings.session_cookie_secure),
+        samesite=settings.session_cookie_samesite,
     )
     return session_id

@@ -262,6 +262,14 @@ def list_admin_activity(
     return admin_activity_service.list_recent(limit=limit)
 
 
+@router.get("/activity/integrity")
+def verify_admin_activity_integrity(
+    limit: int = Query(default=5000, ge=1, le=10000),
+    _: dict[str, object] = Depends(require_admin),
+) -> dict[str, Any]:
+    return admin_activity_service.verify_integrity(limit=limit)
+
+
 @router.get("/voice/settings")
 def get_voice_settings(_: dict[str, object] = Depends(require_admin)) -> dict[str, Any]:
     return {"settings": voice_recovery_service.get_settings()}

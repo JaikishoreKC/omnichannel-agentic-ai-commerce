@@ -20,6 +20,7 @@ from app.api.routes.memory_routes import router as memory_router
 from app.api.routes.order_routes import router as order_router
 from app.api.routes.product_routes import router as product_router
 from app.api.routes.session_routes import router as session_router
+from app.api.routes.voice_webhook_routes import router as voice_webhook_router
 from app.container import (
     auth_service,
     cart_service,
@@ -57,6 +58,7 @@ app.include_router(session_router, prefix=settings.api_prefix)
 app.include_router(memory_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
 app.include_router(interaction_router, prefix=settings.api_prefix)
+app.include_router(voice_webhook_router, prefix=settings.api_prefix)
 
 
 async def _voice_recovery_scheduler_loop(stop_event: asyncio.Event, interval_seconds: float) -> None:
@@ -108,8 +110,20 @@ def _error_code(status_code: int) -> str:
     return codes.get(status_code, "INTERNAL_ERROR")
 
 
+def _record_security_event(*, event_type: str, severity: str) -> None:
+    with suppress(Exception):
+        metrics_collector.record_security_event(event_type=event_type, severity=severity)
+
+
 @app.exception_handler(HTTPException)
 async def handle_http_exception(_: Request, exc: HTTPException) -> JSONResponse:
+    if exc.status_code == 401:
+        _record_security_event(event_type="auth_unauthorized", severity="warning")
+    elif exc.status_code == 403:
+        _record_security_event(event_type="access_forbidden", severity="warning")
+    elif exc.status_code == 429:
+        _record_security_event(event_type="rate_limit_rejected", severity="warning")
+
     if isinstance(exc.detail, dict) and isinstance(exc.detail.get("error"), dict):
         return JSONResponse(status_code=exc.status_code, content=exc.detail)
 
@@ -164,6 +178,40 @@ async def handle_unexpected_exception(_: Request, __: Exception) -> JSONResponse
     )
 
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+STRICT_JSON_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+CRITICAL_DUPLICATE_HEADERS = {
+    "authorization",
+    "x-session-id",
+    "x-anonymous-id",
+    "content-length",
+    "content-type",
+}
+
+
+def _header_occurrence_count(request: Request, header_name: str) -> int:
+    target = header_name.strip().lower().encode("latin-1")
+    count = 0
+    for key, _ in request.scope.get("headers", []):
+        if key.lower() == target:
+            count += 1
+    return count
+
+
+def _request_has_body(request: Request) -> bool:
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            return int(content_length) > 0
+        except ValueError:
+            return True
+    transfer_encoding = request.headers.get("transfer-encoding", "")
+    return bool(str(transfer_encoding).strip())
+
+
+def _is_mutating_api_request(request: Request) -> bool:
+    if request.method.upper() not in STRICT_JSON_METHODS:
+        return False
+    return request.url.path.startswith(f"{settings.api_prefix}/")
 
 
 def _rate_limit_profile(request: Request) -> tuple[str, int]:
@@ -172,9 +220,16 @@ def _rate_limit_profile(request: Request) -> tuple[str, int]:
         raw_token = auth_header.split(" ", 1)[1].strip()
         if raw_token:
             digest = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()[:24]
+            limit = settings.rate_limit_authenticated_per_minute
+            subject_prefix = "auth"
+            with suppress(Exception):
+                user = auth_service.get_user_from_access_token(raw_token)
+                if str(user.get("role", "")).strip().lower() == "admin":
+                    subject_prefix = "admin"
+                    limit = settings.rate_limit_admin_per_minute
             return (
-                f"auth:{digest}",
-                settings.rate_limit_authenticated_per_minute,
+                f"{subject_prefix}:{digest}",
+                limit,
             )
 
     client_ip = request.client.host if request.client and request.client.host else "unknown"
@@ -220,6 +275,89 @@ def _stream_text_chunks(text: str, max_chars: int = 28) -> list[str]:
 
 
 @app.middleware("http")
+async def apply_response_security_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; frame-ancestors 'none'; object-src 'none'",
+    )
+    if request.url.scheme == "https":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+    return response
+
+
+@app.middleware("http")
+async def enforce_request_hardening(request: Request, call_next):  # type: ignore[no-untyped-def]
+    if request.url.path in {"/health", "/metrics"}:
+        return await call_next(request)
+
+    if settings.reject_duplicate_critical_headers:
+        for header in CRITICAL_DUPLICATE_HEADERS:
+            if _header_occurrence_count(request, header) > 1:
+                _record_security_event(event_type="duplicate_header_rejected", severity="warning")
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": {
+                            "code": "VALIDATION_ERROR",
+                            "message": f"Duplicate `{header}` header is not allowed.",
+                            "details": [],
+                        }
+                    },
+                )
+
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            parsed_length = int(content_length)
+        except ValueError:
+            _record_security_event(event_type="invalid_content_length", severity="warning")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "Invalid Content-Length header.",
+                        "details": [],
+                    }
+                },
+            )
+        if parsed_length > max(0, int(settings.request_max_body_bytes)):
+            _record_security_event(event_type="request_too_large", severity="warning")
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "Request body is too large.",
+                        "details": [],
+                    }
+                },
+            )
+
+    if settings.enforce_json_content_type and _is_mutating_api_request(request) and _request_has_body(request):
+        content_type = str(request.headers.get("content-type", "")).split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            _record_security_event(event_type="content_type_rejected", severity="warning")
+            return JSONResponse(
+                status_code=415,
+                content={
+                    "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "Unsupported Content-Type. Use application/json.",
+                        "details": [],
+                    }
+                },
+            )
+
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def enforce_rate_limits(request: Request, call_next):  # type: ignore[no-untyped-def]
     if request.url.path in {"/health", "/metrics"}:
         return await call_next(request)
@@ -235,6 +373,12 @@ async def enforce_rate_limits(request: Request, call_next):  # type: ignore[no-u
     }
     if not decision.allowed:
         retry_after = max(1, decision.reset_epoch - int(time()))
+        warning = str(decision.warning or "").strip()
+        if warning:
+            severity = "critical" if decision.penalty_seconds >= 60 * 60 else "warning"
+            _record_security_event(event_type=warning, severity=severity)
+        else:
+            _record_security_event(event_type="rate_limit_block", severity="warning")
         return JSONResponse(
             status_code=429,
             content={
@@ -315,6 +459,12 @@ def metrics() -> PlainTextResponse:
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
+    origin = str(websocket.headers.get("origin", "")).strip()
+    if origin and "*" not in settings.cors_origin_list and origin not in settings.cors_origin_list:
+        _record_security_event(event_type="ws_origin_rejected", severity="warning")
+        await websocket.close(code=1008, reason="origin not allowed")
+        return
+
     await websocket.accept()
     session_service.cleanup_expired()
     session_id = websocket.query_params.get("sessionId")

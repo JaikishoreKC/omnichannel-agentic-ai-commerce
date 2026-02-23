@@ -54,7 +54,7 @@ def register(payload: RegisterRequest, request: Request) -> dict[str, object]:
 @router.post("/login")
 def login(payload: LoginRequest, request: Request) -> dict[str, object]:
     channel = request.headers.get("X-Channel", "web").strip().lower() or "web"
-    result = auth_service.login(email=payload.email, password=payload.password)
+    result = auth_service.login(email=payload.email, password=payload.password, otp=payload.otp)
     session_id = request.headers.get("X-Session-Id") or request.cookies.get("session_id")
     anonymous_id = None
     if session_id:

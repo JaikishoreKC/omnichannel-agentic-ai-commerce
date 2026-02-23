@@ -168,6 +168,7 @@ support_service = SupportService(
 )
 admin_activity_service = AdminActivityService(
     store=store,
+    settings=settings,
     admin_activity_repository=admin_activity_repository,
 )
 voice_recovery_service = VoiceRecoveryService(

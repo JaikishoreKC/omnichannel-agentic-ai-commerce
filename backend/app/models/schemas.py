@@ -16,6 +16,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     password: str
+    otp: str | None = None
 
 
 class RefreshRequest(BaseModel):

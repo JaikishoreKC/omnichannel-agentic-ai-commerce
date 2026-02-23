@@ -230,3 +230,40 @@ def test_voice_recovery_suppression_roundtrip() -> None:
 
     service.unsuppress_user(user_id=user_id)
     assert user_id not in {row["userId"] for row in service.list_suppressions()}
+
+
+def test_voice_recovery_ingests_provider_callback_idempotently() -> None:
+    service = _service(superu_client=_SuperUSuccess())
+    processed = service.process_due_work()
+    assert int(processed["processed"]["completed"]) >= 1
+
+    call = service.list_calls(limit=1)[0]
+    provider_call_id = str(call["providerCallId"])
+    payload = {
+        "event_id": "evt_001",
+        "call_id": provider_call_id,
+        "status": "completed",
+        "outcome": "converted",
+    }
+
+    first = service.ingest_provider_callback(payload=payload)
+    assert first["accepted"] is True
+    assert first["matched"] is True
+    assert first["idempotent"] is False
+    assert first["status"] == "completed"
+
+    second = service.ingest_provider_callback(payload=payload)
+    assert second["accepted"] is True
+    assert second["matched"] is True
+    assert second["idempotent"] is True
+
+    refreshed = service.list_calls(limit=1)[0]
+    assert refreshed["status"] == "completed"
+    assert "evt_001" in refreshed["providerEventKeys"]
+
+
+def test_voice_recovery_callback_rejects_missing_provider_call_id() -> None:
+    service = _service(superu_client=_SuperUSuccess())
+    result = service.ingest_provider_callback(payload={"status": "completed"})
+    assert result["accepted"] is False
+    assert result["reason"] == "missing_provider_call_id"
