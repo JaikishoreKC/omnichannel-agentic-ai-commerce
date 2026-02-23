@@ -701,24 +701,32 @@ export default function App(): JSX.Element {
             {!selectedProductId ? (
               <>
                 <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr,170px]">
-                  <input
-                    value={catalogQuery}
-                    onChange={(event) => setCatalogQuery(event.target.value)}
-                    placeholder="Search by name, category, description..."
-                    className="w-full rounded-xl border border-line bg-white/90 px-3 py-2 text-sm outline-none ring-cedar/25 transition focus:ring-2"
-                  />
-                  <select
-                    value={categoryFilter}
-                    onChange={(event) => setCategoryFilter(event.target.value)}
-                    className="w-full rounded-xl border border-line bg-white px-3 py-2 text-sm outline-none ring-cedar/25 transition focus:ring-2"
-                  >
-                    <option value="all">All categories</option>
-                    {categories.map((category) => (
-                      <option key={category} value={category}>
-                        {category}
-                      </option>
-                    ))}
-                  </select>
+                  <label className="block">
+                    <span className="sr-only">Search catalog</span>
+                    <input
+                      aria-label="Search catalog"
+                      value={catalogQuery}
+                      onChange={(event) => setCatalogQuery(event.target.value)}
+                      placeholder="Search by name, category, description..."
+                      className="w-full rounded-xl border border-line bg-white/90 px-3 py-2 text-sm outline-none ring-cedar/25 transition focus:ring-2"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="sr-only">Filter by category</span>
+                    <select
+                      aria-label="Filter by category"
+                      value={categoryFilter}
+                      onChange={(event) => setCategoryFilter(event.target.value)}
+                      className="w-full rounded-xl border border-line bg-white px-3 py-2 text-sm outline-none ring-cedar/25 transition focus:ring-2"
+                    >
+                      <option value="all">All categories</option>
+                      {categories.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
 
                 <div className="mt-4 grid gap-3">
