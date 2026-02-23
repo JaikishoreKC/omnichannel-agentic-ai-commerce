@@ -84,6 +84,8 @@ export default function App(): JSX.Element {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailVariantId, setDetailVariantId] = useState("");
   const [detailQuantity, setDetailQuantity] = useState(1);
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const socketRef = useRef<WebSocket | null>(null);
   const connectSocketRef = useRef<(session: string) => void>(() => undefined);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -95,6 +97,29 @@ export default function App(): JSX.Element {
     () => detailProduct?.variants.find((variant) => variant.id === detailVariantId) ?? null,
     [detailProduct, detailVariantId],
   );
+  const categories = useMemo(() => {
+    const names = new Set<string>();
+    for (const product of products) {
+      names.add(product.category);
+    }
+    return Array.from(names).sort((left, right) => left.localeCompare(right));
+  }, [products]);
+  const filteredProducts = useMemo(() => {
+    const query = catalogQuery.trim().toLowerCase();
+    return products.filter((product) => {
+      if (categoryFilter !== "all" && product.category !== categoryFilter) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      return (
+        product.name.toLowerCase().includes(query) ||
+        product.description.toLowerCase().includes(query) ||
+        product.category.toLowerCase().includes(query)
+      );
+    });
+  }, [products, catalogQuery, categoryFilter]);
 
   async function reloadData(): Promise<void> {
     const [productList, cartData] = await Promise.all([fetchProducts(), fetchCart()]);
@@ -109,7 +134,21 @@ export default function App(): JSX.Element {
         setStoredSessionId(payload.sessionId);
         setSessionId(payload.sessionId);
       }
-      setChatMessages(historyToChatEntries(payload.messages ?? []));
+      let resolvedMessages = payload.messages ?? [];
+      if (resolvedMessages.length === 0) {
+        try {
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+          const retryPayload = await fetchChatHistory({ sessionId: payload.sessionId || targetSessionId, limit: 80 });
+          if (retryPayload.sessionId && retryPayload.sessionId !== targetSessionId) {
+            setStoredSessionId(retryPayload.sessionId);
+            setSessionId(retryPayload.sessionId);
+          }
+          resolvedMessages = retryPayload.messages ?? resolvedMessages;
+        } catch {
+          // Keep initial empty state if retry fails.
+        }
+      }
+      setChatMessages(historyToChatEntries(resolvedMessages));
     } catch {
       // Keep existing chat state when history endpoint is unavailable.
     }
@@ -562,280 +601,421 @@ export default function App(): JSX.Element {
   }
 
   return (
-    <div className="app-shell">
-      <header className="hero">
-        <p className="kicker">Omnichannel Agentic Commerce</p>
-        <h1>Guest-first shopping. Authenticated checkout.</h1>
-        <p className="status" data-testid="status-message">
-          {message}
-        </p>
-        <p className="status" data-testid="session-id">
-          Session: {sessionId || "initializing..."}
-        </p>
-      </header>
+    <div className="relative min-h-screen overflow-x-clip pb-10">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -left-28 -top-28 h-72 w-72 rounded-full bg-[#f8d4a8]/70 blur-3xl"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-24 top-10 h-72 w-72 rounded-full bg-[#acd7cc]/70 blur-3xl"
+      />
+      <div className="mx-auto max-w-[1320px] px-4 py-6 sm:px-6 lg:px-8">
+        <header className="panel-surface relative overflow-hidden p-6 sm:p-7">
+          <div className="absolute -right-14 -top-16 h-44 w-44 rounded-full bg-[#ffedd0]/70 blur-2xl" />
+          <p className="relative text-xs font-semibold uppercase tracking-[0.17em] text-cedar">
+            Omnichannel Agentic Commerce
+          </p>
+          <h1 className="relative mt-2 max-w-3xl text-2xl font-bold sm:text-3xl lg:text-[2.2rem]">
+            Conversational shopping that starts as guest and checks out as authenticated.
+          </h1>
+          <p className="relative mt-3 text-sm text-[#5f554a]" data-testid="status-message">
+            {message}
+          </p>
+          <p className="relative mt-1 text-sm text-[#7a6f62]" data-testid="session-id">
+            Session: {sessionId || "initializing..."}
+          </p>
+          <div className="relative mt-4 flex flex-wrap gap-2">
+            <span className="chip">{user ? `Signed in: ${user.email}` : "Guest mode"}</span>
+            <span className="chip">{totalItems} items in cart</span>
+            <span className="chip">{chatReady ? "Assistant connected" : "Assistant connecting"}</span>
+          </div>
+        </header>
 
-      <main className="grid">
-        <section className="panel auth-panel" data-testid="auth-panel">
-          <h2>{user ? `Signed in as ${user.name}` : "Sign in for checkout"}</h2>
-          {!user ? (
-            <>
-              <label>
-                Name
-                <input
-                  data-testid="name-input"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </label>
-              <label>
-                Email
-                <input
-                  data-testid="email-input"
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
-              </label>
-              <label>
-                Password
-                <input
-                  data-testid="password-input"
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                />
-              </label>
-              <div className="button-row">
-                <button data-testid="register-button" disabled={busy} onClick={onRegister}>
-                  Register
-                </button>
-                <button data-testid="login-button" disabled={busy} onClick={onLogin}>
-                  Login
+        <main className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <section className="panel-surface animate-rise p-4 lg:col-span-3" data-testid="auth-panel">
+            <h2 className="text-base font-bold text-[#1f1d1b]">
+              {user ? `Signed in as ${user.name}` : "Sign in for checkout"}
+            </h2>
+            {!user ? (
+              <div className="mt-4 space-y-3">
+                <label className="block text-sm font-medium text-[#4f473e]">
+                  Name
+                  <input
+                    data-testid="name-input"
+                    className="mt-1 w-full rounded-xl border border-line bg-white/90 px-3 py-2 text-sm outline-none ring-clay/30 transition focus:ring-2"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </label>
+                <label className="block text-sm font-medium text-[#4f473e]">
+                  Email
+                  <input
+                    data-testid="email-input"
+                    type="email"
+                    className="mt-1 w-full rounded-xl border border-line bg-white/90 px-3 py-2 text-sm outline-none ring-clay/30 transition focus:ring-2"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                  />
+                </label>
+                <label className="block text-sm font-medium text-[#4f473e]">
+                  Password
+                  <input
+                    data-testid="password-input"
+                    type="password"
+                    className="mt-1 w-full rounded-xl border border-line bg-white/90 px-3 py-2 text-sm outline-none ring-clay/30 transition focus:ring-2"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                </label>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                  <button className="btn-primary" data-testid="register-button" disabled={busy} onClick={onRegister}>
+                    Register
+                  </button>
+                  <button className="btn-quiet" data-testid="login-button" disabled={busy} onClick={onLogin}>
+                    Login
+                  </button>
+                </div>
+                <p className="text-xs text-[#73685c]">Use any email + 12+ char password for demo registration.</p>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-xl border border-line bg-white/80 p-3 text-sm text-[#4e453c]">
+                  Checkout and order APIs are unlocked for authenticated users.
+                </div>
+                <button className="btn-quiet w-full" data-testid="logout-button" disabled={busy} onClick={onLogout}>
+                  Logout
                 </button>
               </div>
-            </>
-          ) : (
-            <button data-testid="logout-button" disabled={busy} onClick={onLogout}>
-              Logout
-            </button>
-          )}
-        </section>
+            )}
+          </section>
 
-        <section className="panel catalog-panel" data-testid="catalog-panel">
-          <div className="panel-header">
-            <h2>{selectedProductId ? "Product Details" : "Catalog"}</h2>
-            <span>{selectedProductId ? selectedProductId : `${products.length} products`}</span>
-          </div>
-          {!selectedProductId ? (
-            <div className="catalog">
-              {products.map((product) => (
-                <article className="product-card" key={product.id}>
-                  <div className="product-top">
-                    <p className="category">{product.category}</p>
-                    <p className="price">
-                      ${product.price.toFixed(2)} {product.currency}
+          <section className="panel-surface animate-rise p-4 lg:col-span-5" data-testid="catalog-panel">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-bold text-[#1f1d1b]">{selectedProductId ? "Product Details" : "Catalog"}</h2>
+              <span className="chip">{selectedProductId ? selectedProductId : `${filteredProducts.length} products`}</span>
+            </div>
+
+            {!selectedProductId ? (
+              <>
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr,170px]">
+                  <input
+                    value={catalogQuery}
+                    onChange={(event) => setCatalogQuery(event.target.value)}
+                    placeholder="Search by name, category, description..."
+                    className="w-full rounded-xl border border-line bg-white/90 px-3 py-2 text-sm outline-none ring-cedar/25 transition focus:ring-2"
+                  />
+                  <select
+                    value={categoryFilter}
+                    onChange={(event) => setCategoryFilter(event.target.value)}
+                    className="w-full rounded-xl border border-line bg-white px-3 py-2 text-sm outline-none ring-cedar/25 transition focus:ring-2"
+                  >
+                    <option value="all">All categories</option>
+                    {categories.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mt-4 grid gap-3">
+                  {filteredProducts.map((product) => (
+                    <article
+                      className="rounded-2xl border border-line bg-gradient-to-r from-[#fff7ea] to-[#fffdf7] p-4 transition hover:-translate-y-0.5 hover:shadow-md"
+                      key={product.id}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#6f665b]">
+                            {product.category}
+                          </p>
+                          <h3 className="mt-1 text-lg font-semibold text-[#1d1b18]">{product.name}</h3>
+                        </div>
+                        <p className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-[#2f3d4d]">
+                          ${product.price.toFixed(2)}
+                        </p>
+                      </div>
+                      <p className="mt-2 text-sm text-[#5f5447]">{product.description}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          className="btn-primary"
+                          data-testid={`add-to-cart-${product.id}`}
+                          disabled={busy}
+                          onClick={() => void onAddProduct(product)}
+                        >
+                          Add to Cart
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-quiet"
+                          data-testid={`view-product-${product.id}`}
+                          onClick={() => navigateTo(`/products/${encodeURIComponent(product.id)}`)}
+                        >
+                          View details
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                  {filteredProducts.length === 0 && (
+                    <p className="rounded-xl border border-dashed border-line bg-white/60 p-4 text-sm text-[#6e6254]">
+                      No products match your search/filter.
                     </p>
-                  </div>
-                  <h3>{product.name}</h3>
-                  <p>{product.description}</p>
-                  <div className="catalog-actions">
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="mt-3" data-testid="product-detail-page">
+                <button
+                  type="button"
+                  className="text-sm font-semibold text-cedar underline underline-offset-4"
+                  data-testid="back-to-catalog"
+                  onClick={() => navigateTo("/")}
+                >
+                  Back to catalog
+                </button>
+                {detailLoading && <p className="mt-3 text-sm text-[#72675b]">Loading product details...</p>}
+                {!detailLoading && !detailProduct && (
+                  <p className="mt-3 text-sm text-[#72675b]" data-testid="product-detail-missing">
+                    Product not found.
+                  </p>
+                )}
+                {!detailLoading && detailProduct && (
+                  <>
+                    <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#6f665b]">
+                      {detailProduct.category}
+                    </p>
+                    <h3 className="mt-1 text-2xl font-bold text-[#1a1816]" data-testid="product-detail-name">
+                      {detailProduct.name}
+                    </h3>
+                    <p className="mt-2 flex flex-wrap gap-2 text-sm text-[#5d5347]">
+                      <span className="rounded-full bg-white px-3 py-1 font-semibold" data-testid="product-detail-price">
+                        ${detailProduct.price.toFixed(2)} {detailProduct.currency}
+                      </span>
+                      <span className="rounded-full bg-[#edf5f2] px-3 py-1" data-testid="product-detail-rating">
+                        Rating {detailProduct.rating.toFixed(1)} / 5
+                      </span>
+                    </p>
+                    <p className="mt-3 text-sm text-[#5f5448]" data-testid="product-detail-description">
+                      {detailProduct.description}
+                    </p>
+                    <p className="mt-2 text-xs text-[#7a6f62]">Product ID: {detailProduct.id}</p>
+                    {detailProduct.images[0] && (
+                      <p className="text-xs text-[#7a6f62]">Image URL: {detailProduct.images[0]}</p>
+                    )}
+
+                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="block text-sm font-medium text-[#4f473e]">
+                        Variant
+                        <select
+                          data-testid="detail-variant-select"
+                          value={detailVariantId}
+                          onChange={(event) => setDetailVariantId(event.target.value)}
+                          className="mt-1 w-full rounded-xl border border-line bg-white px-3 py-2 text-sm outline-none ring-cedar/25 transition focus:ring-2"
+                        >
+                          {detailProduct.variants.map((variant) => (
+                            <option key={variant.id} value={variant.id}>
+                              {variant.size} / {variant.color} ({variant.inStock ? "In stock" : "Out of stock"})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block text-sm font-medium text-[#4f473e]">
+                        Quantity
+                        <input
+                          data-testid="detail-quantity-input"
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={detailQuantity}
+                          onChange={(event) => {
+                            const parsed = Number.parseInt(event.target.value, 10);
+                            setDetailQuantity(Number.isFinite(parsed) && parsed > 0 ? parsed : 1);
+                          }}
+                          className="mt-1 w-full rounded-xl border border-line bg-white/90 px-3 py-2 text-sm outline-none ring-cedar/25 transition focus:ring-2"
+                        />
+                      </label>
+                    </div>
+
+                    <ul className="mt-3 grid gap-2" data-testid="product-detail-variants">
+                      {detailProduct.variants.map((variant) => (
+                        <li
+                          key={variant.id}
+                          className="grid gap-1 rounded-xl border border-dashed border-line bg-[#fffdf8] p-3 text-sm text-[#4f4539] sm:grid-cols-[120px,1fr,auto]"
+                        >
+                          <strong>{variant.id}</strong>
+                          <span>
+                            {variant.size} / {variant.color}
+                          </span>
+                          <span className={variant.inStock ? "text-cedar" : "text-[#a54520]"}>
+                            {variant.inStock ? "In stock" : "Out of stock"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+
                     <button
-                      data-testid={`add-to-cart-${product.id}`}
-                      disabled={busy}
-                      onClick={() => void onAddProduct(product)}
+                      className="btn-primary mt-4"
+                      data-testid="detail-add-to-cart"
+                      disabled={busy || !selectedDetailVariant?.inStock}
+                      onClick={() => void onAddProductFromDetail()}
                     >
                       Add to Cart
                     </button>
-                    <button
-                      type="button"
-                      className="secondary-btn"
-                      data-testid={`view-product-${product.id}`}
-                      onClick={() => navigateTo(`/products/${encodeURIComponent(product.id)}`)}
-                    >
-                      View details
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className="product-detail-page" data-testid="product-detail-page">
-              <button
-                type="button"
-                className="link-btn"
-                data-testid="back-to-catalog"
-                onClick={() => navigateTo("/")}
-              >
-                Back to catalog
-              </button>
-              {detailLoading && <p className="hint">Loading product details...</p>}
-              {!detailLoading && !detailProduct && (
-                <p className="hint" data-testid="product-detail-missing">
-                  Product not found.
-                </p>
-              )}
-              {!detailLoading && detailProduct && (
-                <>
-                  <p className="category">{detailProduct.category}</p>
-                  <h3 data-testid="product-detail-name">{detailProduct.name}</h3>
-                  <p className="product-detail-meta">
-                    <span data-testid="product-detail-price">
-                      ${detailProduct.price.toFixed(2)} {detailProduct.currency}
-                    </span>
-                    <span data-testid="product-detail-rating">Rating {detailProduct.rating.toFixed(1)} / 5</span>
-                  </p>
-                  <p data-testid="product-detail-description">{detailProduct.description}</p>
-                  <p className="hint">Product ID: {detailProduct.id}</p>
-                  {detailProduct.images[0] && <p className="hint">Image URL: {detailProduct.images[0]}</p>}
-                  <div className="detail-controls">
-                    <label>
-                      Variant
-                      <select
-                        data-testid="detail-variant-select"
-                        value={detailVariantId}
-                        onChange={(event) => setDetailVariantId(event.target.value)}
-                      >
-                        {detailProduct.variants.map((variant) => (
-                          <option key={variant.id} value={variant.id}>
-                            {variant.size} / {variant.color} ({variant.inStock ? "In stock" : "Out of stock"})
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Quantity
-                      <input
-                        data-testid="detail-quantity-input"
-                        type="number"
-                        min={1}
-                        max={20}
-                        value={detailQuantity}
-                        onChange={(event) => {
-                          const parsed = Number.parseInt(event.target.value, 10);
-                          setDetailQuantity(Number.isFinite(parsed) && parsed > 0 ? parsed : 1);
-                        }}
-                      />
-                    </label>
-                  </div>
-                  <ul className="variant-list" data-testid="product-detail-variants">
-                    {detailProduct.variants.map((variant) => (
-                      <li key={variant.id}>
-                        <strong>{variant.id}</strong>
-                        <span>
-                          {variant.size} / {variant.color}
-                        </span>
-                        <span>{variant.inStock ? "In stock" : "Out of stock"}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <button
-                    data-testid="detail-add-to-cart"
-                    disabled={busy || !selectedDetailVariant?.inStock}
-                    onClick={() => void onAddProductFromDetail()}
-                  >
-                    Add to Cart
-                  </button>
-                  {!selectedDetailVariant?.inStock && <p className="hint">Selected variant is out of stock.</p>}
-                </>
-              )}
-            </div>
-          )}
-        </section>
-
-        <section className="panel cart-panel" data-testid="cart-panel">
-          <div className="panel-header">
-            <h2>Cart</h2>
-            <span data-testid="cart-item-count">{totalItems} items</span>
-          </div>
-          <ul className="cart-list" data-testid="cart-list">
-            {cart.items.map((item) => (
-              <li key={item.itemId}>
-                <strong>{item.name}</strong>
-                <span>
-                  {item.quantity} x ${item.price.toFixed(2)}
-                </span>
-              </li>
-            ))}
-            {cart.items.length === 0 && <li>Cart is empty.</li>}
-          </ul>
-          <dl className="totals">
-            <div>
-              <dt>Subtotal</dt>
-              <dd>${cart.subtotal.toFixed(2)}</dd>
-            </div>
-            <div>
-              <dt>Tax</dt>
-              <dd>${cart.tax.toFixed(2)}</dd>
-            </div>
-            <div>
-              <dt>Shipping</dt>
-              <dd>${cart.shipping.toFixed(2)}</dd>
-            </div>
-            <div>
-              <dt>Total</dt>
-              <dd>${cart.total.toFixed(2)}</dd>
-            </div>
-          </dl>
-          <button
-            className="checkout"
-            data-testid="checkout-button"
-            disabled={busy || cart.itemCount === 0}
-            onClick={onCheckout}
-          >
-            Checkout
-          </button>
-          {!user && <p className="hint">Login is required before order creation.</p>}
-        </section>
-
-        <section className="panel chat-panel" data-testid="chat-panel">
-          <div className="panel-header">
-            <h2>Assistant Chat</h2>
-            <span data-testid="chat-message-count">{chatMessages.length} msgs</span>
-          </div>
-          <p className="hint" data-testid="chat-ready">
-            {chatReady ? "connected" : "connecting"}
-          </p>
-          <div className="chat-log" data-testid="chat-log">
-            {chatMessages.length === 0 && (
-              <p className="hint">
-                Ask: "show me running shoes", "add to cart", "checkout", "order status".
-              </p>
-            )}
-            {chatMessages.map((entry, index) => (
-              <div key={`${entry.role}-${entry.streamId ?? index}`} className={`chat-bubble ${entry.role}`}>
-                <strong>{entry.role === "user" ? "You" : entry.agent ?? "Assistant"}:</strong>{" "}
-                {entry.text}
+                    {!selectedDetailVariant?.inStock && (
+                      <p className="mt-2 text-xs text-[#9b4b2a]">Selected variant is out of stock.</p>
+                    )}
+                  </>
+                )}
               </div>
-            ))}
-            {assistantTyping && <p className="hint">Assistant is typing...</p>}
-          </div>
-          {chatActions.length > 0 && (
-            <div className="chat-actions">
-              {chatActions.map((action) => (
-                <button
-                  key={action.action}
-                  type="button"
-                  className="action-btn"
-                  onClick={() => onSuggestedAction(action.action)}
-                >
-                  {action.label}
-                </button>
-              ))}
+            )}
+          </section>
+
+          <section className="panel-surface animate-rise p-4 lg:col-span-4" data-testid="cart-panel">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-bold text-[#1f1d1b]">Cart</h2>
+              <span className="chip" data-testid="cart-item-count">
+                {totalItems} items
+              </span>
             </div>
-          )}
-          <div className="chat-input-row">
-            <input
-              data-testid="chat-input"
-              value={chatInput}
-              onChange={(event) => setChatInput(event.target.value)}
-              placeholder="Type a shopping request..."
-            />
-            <button data-testid="chat-send-button" type="button" disabled={busy || !chatReady} onClick={onSendChat}>
-              Send
+            <ul className="mt-3 space-y-2" data-testid="cart-list">
+              {cart.items.map((item) => (
+                <li
+                  key={item.itemId}
+                  className="grid grid-cols-[1fr,auto] items-center gap-2 rounded-xl border border-line bg-white/70 p-3"
+                >
+                  <strong className="text-sm font-semibold text-[#1f1c19]">{item.name}</strong>
+                  <span className="text-sm text-[#4f463d]">
+                    {item.quantity} x ${item.price.toFixed(2)}
+                  </span>
+                </li>
+              ))}
+              {cart.items.length === 0 && (
+                <li className="rounded-xl border border-dashed border-line bg-white/50 p-3 text-sm text-[#786e63]">
+                  Cart is empty.
+                </li>
+              )}
+            </ul>
+            <dl className="mt-4 space-y-1 text-sm text-[#4f463d]">
+              <div className="flex items-center justify-between">
+                <dt>Subtotal</dt>
+                <dd>${cart.subtotal.toFixed(2)}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt>Tax</dt>
+                <dd>${cart.tax.toFixed(2)}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt>Shipping</dt>
+                <dd>${cart.shipping.toFixed(2)}</dd>
+              </div>
+              <div className="mt-2 flex items-center justify-between border-t border-line pt-2 text-base font-bold text-[#1d1b18]">
+                <dt>Total</dt>
+                <dd>${cart.total.toFixed(2)}</dd>
+              </div>
+            </dl>
+            <button
+              className="btn-emerald mt-4 w-full"
+              data-testid="checkout-button"
+              disabled={busy || cart.itemCount === 0}
+              onClick={onCheckout}
+            >
+              Checkout
             </button>
-          </div>
-        </section>
-      </main>
+            {!user && <p className="mt-2 text-xs text-[#7d6d5c]">Login is required before order creation.</p>}
+          </section>
+
+          <section className="panel-surface animate-rise p-4 lg:col-span-12" data-testid="chat-panel">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-base font-bold text-[#1f1d1b]">Assistant Chat</h2>
+              <div className="flex items-center gap-2">
+                <span className="chip" data-testid="chat-message-count">
+                  {chatMessages.length} msgs
+                </span>
+                <span
+                  className={chatReady ? "chip border-emerald-200 bg-emerald-50 text-emerald-700" : "chip"}
+                  data-testid="chat-ready"
+                >
+                  {chatReady ? "connected" : "connecting"}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-4 lg:grid-cols-[1fr,260px]">
+              <div
+                className="scroll-calm min-h-[260px] max-h-[360px] space-y-2 overflow-auto rounded-2xl border border-line bg-[#fffdf8] p-3"
+                data-testid="chat-log"
+              >
+                {chatMessages.length === 0 && (
+                  <p className="rounded-xl border border-dashed border-line bg-white/80 p-3 text-sm text-[#6f655a]">
+                    Ask: "show me running shoes", "add to cart", "checkout", "order status".
+                  </p>
+                )}
+                {chatMessages.map((entry, index) => (
+                  <div
+                    key={`${entry.role}-${entry.streamId ?? index}`}
+                    className={
+                      entry.role === "user"
+                        ? "ml-auto max-w-[85%] rounded-2xl bg-[#efe5d4] px-3 py-2 text-sm text-[#312a22]"
+                        : "mr-auto max-w-[90%] rounded-2xl bg-[#e8f2ef] px-3 py-2 text-sm text-[#21342d]"
+                    }
+                  >
+                    <strong>{entry.role === "user" ? "You" : entry.agent ?? "Assistant"}:</strong> {entry.text}
+                  </div>
+                ))}
+                {assistantTyping && <p className="text-xs text-[#7b6f61]">Assistant is typing...</p>}
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-xs uppercase tracking-[0.12em] text-[#7b6f62]">Quick actions</p>
+                {chatActions.length > 0 ? (
+                  <div className="grid gap-2">
+                    {chatActions.map((action) => (
+                      <button
+                        key={action.action}
+                        type="button"
+                        className="btn-quiet w-full text-left"
+                        onClick={() => onSuggestedAction(action.action)}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-xl border border-dashed border-line bg-white/70 p-3 text-xs text-[#72675b]">
+                    Suggested actions will appear after assistant responses.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr,auto]">
+              <input
+                data-testid="chat-input"
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    onSendChat();
+                  }
+                }}
+                placeholder="Type a shopping request..."
+                className="w-full rounded-xl border border-line bg-white px-3 py-2 text-sm outline-none ring-cedar/25 transition focus:ring-2"
+              />
+              <button
+                className="btn-primary"
+                data-testid="chat-send-button"
+                type="button"
+                disabled={busy || !chatReady}
+                onClick={onSendChat}
+              >
+                Send
+              </button>
+            </div>
+          </section>
+        </main>
+      </div>
     </div>
   );
 }

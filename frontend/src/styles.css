@@ -1,299 +1,57 @@
 @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap");
 
-:root {
-  --bg: #f6f1e8;
-  --paper: #fffdf8;
-  --ink: #1f1e1c;
-  --muted: #635e56;
-  --accent: #e04f2f;
-  --accent-alt: #0f6b55;
-  --line: #ddd2bf;
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-* {
-  box-sizing: border-box;
-}
+@layer base {
+  body {
+    @apply bg-canvas font-sans text-ink antialiased;
+    background:
+      radial-gradient(62rem 38rem at -12% -18%, rgb(254 214 169 / 0.55), transparent 66%),
+      radial-gradient(56rem 34rem at 112% -12%, rgb(170 219 205 / 0.5), transparent 62%),
+      linear-gradient(170deg, #f5f0e8 0%, #f8f4ed 47%, #efe7da 100%);
+  }
 
-body {
-  margin: 0;
-  font-family: "Space Grotesk", sans-serif;
-  color: var(--ink);
-  background:
-    radial-gradient(circle at 10% 10%, #f8d7b6 0%, transparent 30%),
-    radial-gradient(circle at 90% 10%, #b9dfd5 0%, transparent 32%),
-    linear-gradient(160deg, #f3ede2 0%, #f8f4eb 45%, #efe6d8 100%);
-}
-
-.app-shell {
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 2rem 1.25rem 3rem;
-}
-
-.hero {
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: linear-gradient(120deg, #fffaf2 0%, #f9f4eb 100%);
-  padding: 1.5rem;
-  margin-bottom: 1rem;
-}
-
-.kicker {
-  margin: 0;
-  font-size: 0.8rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent-alt);
-}
-
-.hero h1 {
-  margin: 0.45rem 0 0.6rem;
-  font-size: clamp(1.4rem, 2.8vw, 2.2rem);
-}
-
-.status {
-  margin: 0;
-  color: var(--muted);
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
-}
-
-@media (min-width: 980px) {
-  .grid {
-    grid-template-columns: 1fr 1.4fr 1fr;
+  button:disabled {
+    @apply cursor-not-allowed opacity-55;
   }
 }
 
-.panel {
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--paper);
-  padding: 1rem;
+@layer components {
+  .panel-surface {
+    @apply rounded-2xl border border-line bg-paper shadow-panel;
+  }
+
+  .btn-primary {
+    @apply rounded-xl bg-gradient-to-r from-clay to-[#b94a1f] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-95;
+  }
+
+  .btn-quiet {
+    @apply rounded-xl border border-line bg-white/70 px-4 py-2 text-sm font-semibold text-[#2f465c] transition hover:bg-white;
+  }
+
+  .btn-emerald {
+    @apply rounded-xl bg-gradient-to-r from-cedar to-[#164a3f] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-95;
+  }
+
+  .chip {
+    @apply rounded-full border border-line bg-white/70 px-3 py-1 text-xs font-medium tracking-wide text-[#584f45];
+  }
 }
 
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
+@layer utilities {
+  .scroll-calm::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
 
-.panel h2 {
-  margin: 0 0 0.8rem;
-  font-size: 1.05rem;
-}
+  .scroll-calm::-webkit-scrollbar-track {
+    background: transparent;
+  }
 
-label {
-  display: grid;
-  gap: 0.3rem;
-  margin-bottom: 0.65rem;
-  font-size: 0.9rem;
-}
-
-input {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 0.6rem 0.7rem;
-  font: inherit;
-}
-
-select {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 0.6rem 0.7rem;
-  font: inherit;
-  background: #fff;
-}
-
-.button-row {
-  display: flex;
-  gap: 0.5rem;
-}
-
-button {
-  border: 0;
-  border-radius: 10px;
-  padding: 0.55rem 0.8rem;
-  font: inherit;
-  font-weight: 600;
-  color: #fff;
-  background: linear-gradient(120deg, var(--accent) 0%, #d13f22 100%);
-  cursor: pointer;
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.catalog {
-  display: grid;
-  gap: 0.65rem;
-}
-
-.catalog-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.product-card {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 0.75rem;
-  background: #fffaf3;
-}
-
-.product-top {
-  display: flex;
-  justify-content: space-between;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.product-card h3 {
-  margin: 0.25rem 0 0.4rem;
-  font-size: 1rem;
-}
-
-.product-card p {
-  margin: 0 0 0.6rem;
-  font-size: 0.9rem;
-}
-
-.secondary-btn {
-  background: linear-gradient(120deg, #4b5f79 0%, #34455c 100%);
-}
-
-.link-btn {
-  color: var(--accent-alt);
-  text-decoration: underline;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  padding: 0;
-}
-
-.product-detail-page h3 {
-  margin: 0.25rem 0 0.55rem;
-  font-size: 1.2rem;
-}
-
-.product-detail-meta {
-  margin: 0 0 0.6rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.8rem;
-  color: var(--muted);
-  font-size: 0.92rem;
-}
-
-.detail-controls {
-  margin: 0.65rem 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 0.6rem;
-}
-
-.variant-list {
-  list-style: none;
-  margin: 0 0 0.75rem;
-  padding: 0;
-  display: grid;
-  gap: 0.35rem;
-}
-
-.variant-list li {
-  border: 1px dashed var(--line);
-  border-radius: 10px;
-  padding: 0.45rem 0.55rem;
-  display: flex;
-  justify-content: space-between;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-}
-
-.cart-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.5rem;
-}
-
-.cart-list li {
-  border-bottom: 1px dashed var(--line);
-  padding-bottom: 0.4rem;
-  display: flex;
-  justify-content: space-between;
-  gap: 0.6rem;
-}
-
-.totals {
-  margin: 0.8rem 0;
-  display: grid;
-  gap: 0.3rem;
-}
-
-.totals div {
-  display: flex;
-  justify-content: space-between;
-}
-
-.checkout {
-  width: 100%;
-  background: linear-gradient(120deg, var(--accent-alt) 0%, #0c5a48 100%);
-}
-
-.hint {
-  margin: 0.6rem 0 0;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.chat-log {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fffaf3;
-  min-height: 180px;
-  max-height: 320px;
-  overflow: auto;
-  padding: 0.65rem;
-  display: grid;
-  gap: 0.45rem;
-}
-
-.chat-bubble {
-  padding: 0.5rem 0.6rem;
-  border-radius: 10px;
-  font-size: 0.9rem;
-}
-
-.chat-bubble.user {
-  background: #efe5d4;
-}
-
-.chat-bubble.assistant {
-  background: #e8f2ef;
-}
-
-.chat-input-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.45rem;
-  margin-top: 0.55rem;
-}
-
-.chat-actions {
-  margin-top: 0.55rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.action-btn {
-  background: linear-gradient(120deg, #b45b23 0%, #8f3f10 100%);
+  .scroll-calm::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgb(147 120 92 / 0.42);
+  }
 }

@@ -126,21 +126,46 @@ Services:
 - `POST /v1/auth/login`
 - `POST /v1/auth/refresh`
 - `GET /v1/products`
-- `GET /v1/products/{productId}`
+- `GET /v1/products/{product_id}`
 - `GET /v1/cart`
 - `POST /v1/cart/items`
+- `PUT /v1/cart/items/{item_id}`
+- `DELETE /v1/cart/items/{item_id}`
 - `POST /v1/cart/apply-discount`
 - `POST /v1/orders` (auth required)
-- `POST /v1/orders/{orderId}/cancel`
-- `POST /v1/orders/{orderId}/refund`
-- `PUT /v1/orders/{orderId}/shipping-address`
+- `GET /v1/orders` (auth required)
+- `GET /v1/orders/{order_id}` (auth required)
+- `POST /v1/orders/{order_id}/cancel`
+- `POST /v1/orders/{order_id}/refund`
+- `PUT /v1/orders/{order_id}/shipping-address`
 - `POST /v1/sessions`
+- `GET /v1/sessions/{session_id}`
+- `DELETE /v1/sessions/{session_id}`
 - `POST /v1/interactions/message`
+- `GET /v1/interactions/history`
+- `GET /v1/memory`
+- `GET /v1/memory/preferences`
+- `PUT /v1/memory/preferences`
 - `GET /v1/memory/history`
+- `DELETE /v1/memory`
+- `DELETE /v1/memory/preferences`
+- `DELETE /v1/memory/preferences/{key}`
+- `DELETE /v1/memory/history`
+- `GET /v1/admin/stats`
+- `GET /v1/admin/support/tickets`
+- `PATCH /v1/admin/support/tickets/{ticket_id}`
 - `GET /v1/admin/categories`
+- `GET /v1/admin/categories/records`
+- `POST /v1/admin/categories`
+- `PUT /v1/admin/categories/{category_id}`
+- `DELETE /v1/admin/categories/{category_id}`
 - `POST /v1/admin/products`
-- `GET /v1/admin/inventory/{variantId}`
-- `PUT /v1/admin/inventory/{variantId}`
+- `PUT /v1/admin/products/{product_id}`
+- `DELETE /v1/admin/products/{product_id}`
+- `GET /v1/admin/inventory/{variant_id}`
+- `PUT /v1/admin/inventory/{variant_id}`
+- `GET /v1/admin/activity`
+- `GET /v1/admin/activity/integrity`
 - `GET /v1/admin/voice/settings`
 - `PUT /v1/admin/voice/settings`
 - `POST /v1/admin/voice/process`
@@ -148,11 +173,13 @@ Services:
 - `GET /v1/admin/voice/jobs`
 - `GET /v1/admin/voice/suppressions`
 - `POST /v1/admin/voice/suppressions`
-- `DELETE /v1/admin/voice/suppressions/{userId}`
+- `DELETE /v1/admin/voice/suppressions/{user_id}`
 - `GET /v1/admin/voice/alerts`
 - `GET /v1/admin/voice/stats`
+- `POST /v1/voice/superu/callback`
 - `GET /health`
 - `GET /metrics`
+- `WS /ws`
 
 ## Demo Admin Account
 
