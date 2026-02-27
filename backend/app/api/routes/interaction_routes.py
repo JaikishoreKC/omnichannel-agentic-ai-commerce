@@ -1,6 +1,5 @@
 from __future__ import annotations
-
-import logging
+from app.infrastructure.logging import get_logger
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi import HTTPException
@@ -17,7 +16,7 @@ from app.container import (
 from app.models.schemas import InteractionMessageRequest
 
 router = APIRouter(prefix="/interactions", tags=["interactions"])
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @router.post("/message")

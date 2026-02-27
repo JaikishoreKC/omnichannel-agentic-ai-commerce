@@ -6,6 +6,7 @@ from app.agents.memory_agent import MemoryAgent
 from app.agents.order_agent import OrderAgent
 from app.agents.product_agent import ProductAgent
 from app.agents.support_agent import SupportAgent
+from app.agents.general_agent import GeneralAgent
 from app.orchestrator.action_extractor import ActionExtractor
 from app.orchestrator.agent_router import AgentRouter
 from app.orchestrator.context_builder import ContextBuilder
@@ -47,171 +48,246 @@ from app.services.support_service import SupportService
 from app.services.voice_recovery_service import VoiceRecoveryService
 from app.store.in_memory import InMemoryStore
 
-settings = Settings.from_env()
-store = InMemoryStore()
-mongo_manager = MongoClientManager(uri=settings.mongodb_uri, enabled=settings.enable_external_services)
-redis_manager = RedisClientManager(url=settings.redis_url, enabled=settings.enable_external_services)
-mongo_manager.connect()
-redis_manager.connect()
-rate_limiter = SlidingWindowRateLimiter()
-metrics_collector = MetricsCollector()
-llm_client = LLMClient(settings=settings)
-state_persistence = StatePersistence(
-    mongo_manager=mongo_manager,
-    redis_manager=redis_manager,
-)
-state_persistence.load(store)
+class Container:
+    def __init__(self) -> None:
+        self.settings = Settings.from_env()
+        self.store = InMemoryStore()
+        self.mongo_manager = MongoClientManager(
+            uri=self.settings.mongodb_uri, 
+            enabled=self.settings.enable_external_services
+        )
+        self.redis_manager = RedisClientManager(
+            url=self.settings.redis_url, 
+            enabled=self.settings.enable_external_services
+        )
+        self.rate_limiter = SlidingWindowRateLimiter()
+        self.metrics_collector = MetricsCollector()
+        self.llm_client = LLMClient(settings=self.settings)
+        self.state_persistence = StatePersistence(
+            mongo_manager=self.mongo_manager,
+            redis_manager=self.redis_manager,
+        )
 
-auth_repository = AuthRepository(
-    store=store,
-    mongo_manager=mongo_manager,
-    redis_manager=redis_manager,
-)
-auth_service = AuthService(
-    store=store,
-    settings=settings,
-    auth_repository=auth_repository,
-)
-product_repository = ProductRepository(
-    store=store,
-    mongo_manager=mongo_manager,
-    redis_manager=redis_manager,
-)
-category_repository = CategoryRepository(
-    store=store,
-    mongo_manager=mongo_manager,
-    redis_manager=redis_manager,
-)
-inventory_repository = InventoryRepository(
-    store=store,
-    mongo_manager=mongo_manager,
-    redis_manager=redis_manager,
-)
-notification_repository = NotificationRepository(
-    store=store,
-    mongo_manager=mongo_manager,
-)
-product_service = ProductService(
-    store=store,
-    product_repository=product_repository,
-    category_repository=category_repository,
-    inventory_repository=inventory_repository,
-)
-category_service = CategoryService(
-    store=store,
-    category_repository=category_repository,
-    product_repository=product_repository,
-)
-session_repository = SessionRepository(
-    store=store,
-    mongo_manager=mongo_manager,
-    redis_manager=redis_manager,
-)
-session_service = SessionService(store=store, session_repository=session_repository)
-cart_repository = CartRepository(
-    store=store,
-    mongo_manager=mongo_manager,
-    redis_manager=redis_manager,
-)
-cart_service = CartService(
-    store=store,
-    settings=settings,
-    cart_repository=cart_repository,
-    product_repository=product_repository,
-)
-order_repository = OrderRepository(store=store, mongo_manager=mongo_manager)
-memory_repository = MemoryRepository(
-    store=store,
-    mongo_manager=mongo_manager,
-    redis_manager=redis_manager,
-)
-interaction_repository = InteractionRepository(
-    store=store,
-    mongo_manager=mongo_manager,
-    redis_manager=redis_manager,
-)
-support_repository = SupportRepository(
-    store=store,
-    mongo_manager=mongo_manager,
-)
-admin_activity_repository = AdminActivityRepository(
-    store=store,
-    mongo_manager=mongo_manager,
-)
-inventory_service = InventoryService(
-    store=store,
-    inventory_repository=inventory_repository,
-    product_repository=product_repository,
-)
-payment_service = PaymentService(store=store)
-notification_service = NotificationService(
-    store=store,
-    notification_repository=notification_repository,
-)
-superu_client = SuperUClient(settings=settings)
-order_service = OrderService(
-    store=store,
-    cart_service=cart_service,
-    inventory_service=inventory_service,
-    payment_service=payment_service,
-    notification_service=notification_service,
-    order_repository=order_repository,
-)
-memory_service = MemoryService(store=store, memory_repository=memory_repository)
-interaction_service = InteractionService(
-    store=store,
-    interaction_repository=interaction_repository,
-)
-support_service = SupportService(
-    store=store,
-    support_repository=support_repository,
-)
-admin_activity_service = AdminActivityService(
-    store=store,
-    settings=settings,
-    admin_activity_repository=admin_activity_repository,
-)
-voice_recovery_service = VoiceRecoveryService(
-    store=store,
-    settings=settings,
-    superu_client=superu_client,
-    support_service=support_service,
-    notification_service=notification_service,
-)
-admin_service = AdminService(
-    store=store,
-    session_repository=session_repository,
-    order_repository=order_repository,
-    interaction_repository=interaction_repository,
-    support_repository=support_repository,
-    product_repository=product_repository,
-    voice_recovery_service=voice_recovery_service,
-)
+        self.auth_repository = AuthRepository(
+            store=self.store,
+            mongo_manager=self.mongo_manager,
+            redis_manager=self.redis_manager,
+        )
+        self.auth_service = AuthService(
+            store=self.store,
+            settings=self.settings,
+            auth_repository=self.auth_repository,
+        )
+        self.product_repository = ProductRepository(
+            store=self.store,
+            mongo_manager=self.mongo_manager,
+            redis_manager=self.redis_manager,
+        )
+        self.category_repository = CategoryRepository(
+            store=self.store,
+            mongo_manager=self.mongo_manager,
+            redis_manager=self.redis_manager,
+        )
+        self.inventory_repository = InventoryRepository(
+            store=self.store,
+            mongo_manager=self.mongo_manager,
+            redis_manager=self.redis_manager,
+        )
+        self.notification_repository = NotificationRepository(
+            store=self.store,
+            mongo_manager=self.mongo_manager,
+        )
+        self.product_service = ProductService(
+            store=self.store,
+            product_repository=self.product_repository,
+            category_repository=self.category_repository,
+            inventory_repository=self.inventory_repository,
+        )
+        self.category_service = CategoryService(
+            store=self.store,
+            category_repository=self.category_repository,
+            product_repository=self.product_repository,
+        )
+        self.session_repository = SessionRepository(
+            store=self.store,
+            mongo_manager=self.mongo_manager,
+            redis_manager=self.redis_manager,
+        )
+        self.session_service = SessionService(
+            store=self.store, 
+            session_repository=self.session_repository
+        )
+        self.cart_repository = CartRepository(
+            store=self.store,
+            mongo_manager=self.mongo_manager,
+            redis_manager=self.redis_manager,
+        )
+        self.cart_service = CartService(
+            store=self.store,
+            settings=self.settings,
+            cart_repository=self.cart_repository,
+            product_repository=self.product_repository,
+        )
+        self.order_repository = OrderRepository(
+            store=self.store, 
+            mongo_manager=self.mongo_manager
+        )
+        self.memory_repository = MemoryRepository(
+            store=self.store,
+            mongo_manager=self.mongo_manager,
+            redis_manager=self.redis_manager,
+        )
+        self.interaction_repository = InteractionRepository(
+            store=self.store,
+            mongo_manager=self.mongo_manager,
+            redis_manager=self.redis_manager,
+        )
+        self.support_repository = SupportRepository(
+            store=self.store,
+            mongo_manager=self.mongo_manager,
+        )
+        self.admin_activity_repository = AdminActivityRepository(
+            store=self.store,
+            mongo_manager=self.mongo_manager,
+        )
+        self.inventory_service = InventoryService(
+            store=self.store,
+            inventory_repository=self.inventory_repository,
+            product_repository=self.product_repository,
+        )
+        self.payment_service = PaymentService(store=self.store)
+        self.notification_service = NotificationService(
+            store=self.store,
+            notification_repository=self.notification_repository,
+        )
+        self.superu_client = SuperUClient(settings=self.settings)
+        self.order_service = OrderService(
+            store=self.store,
+            cart_service=self.cart_service,
+            inventory_service=self.inventory_service,
+            payment_service=self.payment_service,
+            notification_service=self.notification_service,
+            order_repository=self.order_repository,
+        )
+        self.memory_service = MemoryService(
+            store=self.store, 
+            memory_repository=self.memory_repository
+        )
+        self.interaction_service = InteractionService(
+            store=self.store,
+            interaction_repository=self.interaction_repository,
+        )
+        self.support_service = SupportService(
+            store=self.store,
+            support_repository=self.support_repository,
+        )
+        self.admin_activity_service = AdminActivityService(
+            store=self.store,
+            settings=self.settings,
+            admin_activity_repository=self.admin_activity_repository,
+        )
+        self.voice_recovery_service = VoiceRecoveryService(
+            store=self.store,
+            settings=self.settings,
+            superu_client=self.superu_client,
+            support_service=self.support_service,
+            notification_service=self.notification_service,
+        )
+        self.admin_service = AdminService(
+            store=self.store,
+            session_repository=self.session_repository,
+            order_repository=self.order_repository,
+            interaction_repository=self.interaction_repository,
+            support_repository=self.support_repository,
+            product_repository=self.product_repository,
+            voice_recovery_service=self.voice_recovery_service,
+        )
 
-product_agent = ProductAgent(product_service=product_service)
-cart_agent = CartAgent(cart_service=cart_service, product_service=product_service)
-order_agent = OrderAgent(order_service=order_service)
-support_agent = SupportAgent(support_service=support_service)
-memory_agent = MemoryAgent(memory_service=memory_service)
+        self.product_agent = ProductAgent(product_service=self.product_service)
+        self.cart_agent = CartAgent(
+            cart_service=self.cart_service, 
+            product_service=self.product_service
+        )
+        self.order_agent = OrderAgent(order_service=self.order_service)
+        self.support_agent = SupportAgent(support_service=self.support_service)
+        self.general_agent = GeneralAgent(llm_client=self.llm_client)
+        self.memory_agent = MemoryAgent(memory_service=self.memory_service)
 
-orchestrator = Orchestrator(
-    intent_classifier=IntentClassifier(llm_client=llm_client),
-    context_builder=ContextBuilder(
-        session_service=session_service,
-        cart_service=cart_service,
-        memory_service=memory_service,
-    ),
-    action_extractor=ActionExtractor(),
-    router=AgentRouter(),
-    formatter=ResponseFormatter(),
-    llm_client=llm_client,
-    interaction_service=interaction_service,
-    memory_service=memory_service,
-    agents={
-        product_agent.name: product_agent,
-        cart_agent.name: cart_agent,
-        order_agent.name: order_agent,
-        support_agent.name: support_agent,
-        memory_agent.name: memory_agent,
-    },
-)
+        self.orchestrator = Orchestrator(
+            intent_classifier=IntentClassifier(llm_client=self.llm_client),
+            context_builder=ContextBuilder(
+                session_service=self.session_service,
+                cart_service=self.cart_service,
+                memory_service=self.memory_service,
+            ),
+            action_extractor=ActionExtractor(),
+            router=AgentRouter(),
+            formatter=ResponseFormatter(),
+            llm_client=self.llm_client,
+            interaction_service=self.interaction_service,
+            memory_service=self.memory_service,
+            agents={
+                self.product_agent.name: self.product_agent,
+                self.cart_agent.name: self.cart_agent,
+                self.order_agent.name: self.order_agent,
+                self.support_agent.name: self.support_agent,
+                self.general_agent.name: self.general_agent,
+                self.memory_agent.name: self.memory_agent,
+            },
+        )
+
+    async def start(self) -> None:
+        self.mongo_manager.connect()
+        self.redis_manager.connect()
+        self.state_persistence.load(self.store)
+
+    async def stop(self) -> None:
+        self.mongo_manager.disconnect()
+        self.redis_manager.disconnect()
+
+container = Container()
+
+# Re-export to avoid breaking imports in other modules
+settings = container.settings
+store = container.store
+mongo_manager = container.mongo_manager
+redis_manager = container.redis_manager
+rate_limiter = container.rate_limiter
+metrics_collector = container.metrics_collector
+llm_client = container.llm_client
+state_persistence = container.state_persistence
+auth_repository = container.auth_repository
+auth_service = container.auth_service
+product_repository = container.product_repository
+category_repository = container.category_repository
+inventory_repository = container.inventory_repository
+notification_repository = container.notification_repository
+product_service = container.product_service
+category_service = container.category_service
+session_repository = container.session_repository
+session_service = container.session_service
+cart_repository = container.cart_repository
+cart_service = container.cart_service
+order_repository = container.order_repository
+memory_repository = container.memory_repository
+interaction_repository = container.interaction_repository
+support_repository = container.support_repository
+admin_activity_repository = container.admin_activity_repository
+inventory_service = container.inventory_service
+payment_service = container.payment_service
+notification_service = container.notification_service
+superu_client = container.superu_client
+order_service = container.order_service
+memory_service = container.memory_service
+interaction_service = container.interaction_service
+support_service = container.support_service
+admin_activity_service = container.admin_activity_service
+voice_recovery_service = container.voice_recovery_service
+admin_service = container.admin_service
+product_agent = container.product_agent
+cart_agent = container.cart_agent
+order_agent = container.order_agent
+support_agent = container.support_agent
+general_agent = container.general_agent
+memory_agent = container.memory_agent
+orchestrator = container.orchestrator

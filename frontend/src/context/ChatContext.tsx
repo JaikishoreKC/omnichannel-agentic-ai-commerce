@@ -1,0 +1,138 @@
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { connectChat, fetchChatHistory } from "../api";
+import { useSession } from "./SessionContext";
+import type { ChatResponsePayload } from "../api/types";
+
+export type Message = {
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    agent?: string;
+    timestamp: string;
+    isStreaming?: boolean;
+};
+
+interface ChatContextType {
+    messages: Message[];
+    isTyping: boolean;
+    isConnected: boolean;
+    sendMessage: (text: string) => void;
+    clearMessages: () => void;
+}
+
+const ChatContext = createContext<ChatContextType | undefined>(undefined);
+
+export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const { sessionId } = useSession();
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [isTyping, setIsTyping] = useState(false);
+    const [isConnected, setIsConnected] = useState(false);
+    const socketRef = useRef<WebSocket | null>(null);
+
+    const loadHistory = useCallback(async () => {
+        if (!sessionId) return;
+        try {
+            const history = await fetchChatHistory({ sessionId });
+            const mapped: Message[] = history.messages.map((m) => ({
+                id: m.id,
+                role: m.userId ? "user" : "assistant", // Approximation if role not explicit
+                content: m.message,
+                timestamp: m.timestamp,
+                agent: m.agent,
+            }));
+            setMessages(mapped);
+        } catch (err) {
+            console.error("Failed to load chat history", err);
+        }
+    }, [sessionId]);
+
+    useEffect(() => {
+        if (!sessionId) return;
+
+        loadHistory();
+
+        const socket = connectChat({
+            sessionId,
+            onOpen: () => setIsConnected(true),
+            onClose: () => setIsConnected(false),
+            onError: (err) => console.error("Chat WS error", err),
+            onSession: (sid) => console.log("Session updated via WS", sid),
+            onTyping: ({ isTyping }) => setIsTyping(isTyping),
+            onMessage: (payload, streamId) => {
+                setMessages((prev) => [
+                    ...prev,
+                    {
+                        id: streamId || Date.now().toString(),
+                        role: "assistant",
+                        content: payload.message,
+                        agent: payload.agent,
+                        timestamp: new Date().toISOString(),
+                    },
+                ]);
+            },
+            onStreamStart: ({ streamId, agent }) => {
+                setMessages((prev) => [
+                    ...prev,
+                    {
+                        id: streamId,
+                        role: "assistant",
+                        content: "",
+                        agent,
+                        timestamp: new Date().toISOString(),
+                        isStreaming: true,
+                    },
+                ]);
+            },
+            onStreamDelta: ({ streamId, delta }) => {
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.id === streamId ? { ...m, content: m.content + delta } : m
+                    )
+                );
+            },
+            onStreamEnd: ({ streamId }) => {
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.id === streamId ? { ...m, isStreaming: false } : m
+                    )
+                );
+            },
+        });
+
+        socketRef.current = socket;
+        return () => socket.close();
+    }, [sessionId, loadHistory]);
+
+    const sendMessage = (text: string) => {
+        if (socketRef.current && isConnected) {
+            socketRef.current.send(JSON.stringify({ type: "message", payload: { text } }));
+            setMessages((prev) => [
+                ...prev,
+                {
+                    id: Date.now().toString(),
+                    role: "user",
+                    content: text,
+                    timestamp: new Date().toISOString(),
+                },
+            ]);
+        }
+    };
+
+    const clearMessages = () => setMessages([]);
+
+    return (
+        <ChatContext.Provider
+            value={{ messages, isTyping, isConnected, sendMessage, clearMessages }}
+        >
+            {children}
+        </ChatContext.Provider>
+    );
+};
+
+export const useChat = () => {
+    const context = useContext(ChatContext);
+    if (context === undefined) {
+        throw new Error("useChat must be used within a ChatProvider");
+    }
+    return context;
+};

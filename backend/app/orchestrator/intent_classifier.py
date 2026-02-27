@@ -210,7 +210,12 @@ class IntentClassifier:
         return {"quantity": quantity}
 
     def _extract_color(self, text: str) -> dict[str, Any]:
-        for color in ("black", "blue", "white", "green", "red", "gray", "charcoal", "navy"):
+        colors = (
+            "black", "blue", "white", "green", "red", "gray", "grey", "charcoal", "navy",
+            "yellow", "purple", "orange", "pink", "brown", "tan", "beige", "gold", "silver",
+            "maroon", "teal", "olive", "magenta", "cyan"
+        )
+        for color in colors:
             if color in text:
                 return {"color": color}
         return {}
@@ -233,15 +238,18 @@ class IntentClassifier:
 
     def _extract_brand(self, message: str) -> dict[str, Any]:
         match = re.search(
-            r"(?:brand|from)\s*(?:is|=|:)?\s*([a-zA-Z0-9&\-\s]{2,80})",
+            r"(?:brand|from|by)\s*(?:is|=|:)?\s*([a-zA-Z0-9&\-\s]{2,80})",
             message,
             flags=re.IGNORECASE,
         )
         if match:
             raw = match.group(1).strip(" .,;")
             if raw:
-                return {"brand": raw}
-        known = ("strideforge", "peakroute", "aerothread", "carryworks")
+                # Basic filtering to avoid common words being caught as brands
+                if raw.lower() not in ("me", "my", "the", "a", "an", "this", "that", "these", "those"):
+                    return {"brand": raw.lower()}
+        
+        known = ("strideforge", "peakroute", "aerothread", "carryworks", "urbanbound", "trailtech", "luxthread", "vanguards")
         lowered = message.lower()
         for token in known:
             if token in lowered:
@@ -612,7 +620,7 @@ class IntentClassifier:
             agent = str(row.get('agent', '')).strip()
             if intent in {'product_search', 'search_and_add_to_cart'} or agent == 'product':
                 return True
-        return True
+        return False
 
     def _looks_like_product_query(self, text: str) -> bool:
         if not text:
@@ -633,24 +641,11 @@ class IntentClassifier:
         ):
             return False
         product_tokens = (
-            'shoe',
-            'shoes',
-            'sneaker',
-            'sneakers',
-            'runner',
-            'running',
-            'trail',
-            'hoodie',
-            'jogger',
-            'joggers',
-            'sock',
-            'socks',
-            'backpack',
-            'bag',
-            'clothing',
-            'accessories',
-            'denim',
-            'athleisure',
+            'shoe', 'shoes', 'sneaker', 'sneakers', 'runner', 'running', 'trail', 'hoodie',
+            'jogger', 'joggers', 'sock', 'socks', 'backpack', 'bag', 'clothing', 'accessories',
+            'denim', 'athleisure', 'tee', 'tshirt', 'shirt', 'pants', 'trousers', 'shorts',
+            'jacket', 'coat', 'vest', 'hat', 'cap', 'beanie', 'gloves', 'watch', 'belt',
+            'wallet', 'purse', 'handbag', 'tote'
         )
         return any(token in text for token in product_tokens)
 

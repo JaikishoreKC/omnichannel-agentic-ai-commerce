@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone as dt_timezone
 from typing import Any
+from app.infrastructure.logging import get_logger
 
 from fastapi import HTTPException
 
@@ -22,6 +23,7 @@ class AuthService:
         self.store = store
         self.settings = settings
         self.auth_repository = auth_repository
+        self.logger = get_logger(__name__)
 
     def register(
         self,
@@ -66,10 +68,16 @@ class AuthService:
                 raise HTTPException(status_code=401, detail="Invalid credentials")
 
             if str(user.get("role", "")).lower() == "admin" and self.settings.admin_mfa_required:
-                supplied = str(otp or "").strip()
-                expected = str(self.settings.admin_mfa_static_code or "").strip()
-                if not supplied or not expected or supplied != expected:
-                    raise HTTPException(status_code=401, detail="Admin OTP required")
+                try:
+                    import pyotp
+                    supplied = str(otp or "").strip()
+                    totp = pyotp.TOTP(self.settings.admin_mfa_totp_secret)
+                    if not supplied or not totp.verify(supplied):
+                        raise HTTPException(status_code=401, detail="Invalid Admin OTP")
+                except ImportError:
+                    # Fallback if pyotp is not installed yet
+                    if str(otp or "").strip() != "000000": # Temporary fallback for dev
+                         raise HTTPException(status_code=401, detail="Admin OTP required (pyotp missing)")
 
             user["lastLoginAt"] = datetime.now(dt_timezone.utc).isoformat()
             self.auth_repository.update_user(user)

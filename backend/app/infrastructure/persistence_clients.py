@@ -14,6 +14,11 @@ class MongoClientManager:
     def connect(self) -> None:
         if not self.enabled:
             return
+        
+        # Warning if using localhost in what might be a non-dev env
+        if "localhost" in self.uri or "127.0.0.1" in self.uri:
+             print(f"WARNING: MongoClientManager is using a LOCALHOST URI: {self.uri}")
+
         try:
             from pymongo import MongoClient
 
@@ -23,6 +28,7 @@ class MongoClientManager:
         except Exception as exc:
             self._client = None
             self._last_error = str(exc)
+            print(f"WARNING: Failed to connect to MongoDB at {self.uri}: {exc}")
 
     @property
     def status(self) -> str:
@@ -51,6 +57,10 @@ class RedisClientManager:
     def connect(self) -> None:
         if not self.enabled:
             return
+
+        if "localhost" in self.url or "127.0.0.1" in self.url:
+             print(f"WARNING: RedisClientManager is using a LOCALHOST URL: {self.url}")
+
         try:
             import redis
 
@@ -60,6 +70,7 @@ class RedisClientManager:
         except Exception as exc:
             self._client = None
             self._last_error = str(exc)
+            print(f"WARNING: Failed to connect to Redis at {self.url}: {exc}")
 
     @property
     def status(self) -> str:

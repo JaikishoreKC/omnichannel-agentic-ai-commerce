@@ -1,42 +1,49 @@
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  body {
-    @apply bg-canvas font-sans text-ink antialiased;
-    background:
-      radial-gradient(62rem 38rem at -12% -18%, rgb(254 214 169 / 0.55), transparent 66%),
-      radial-gradient(56rem 34rem at 112% -12%, rgb(170 219 205 / 0.5), transparent 62%),
-      linear-gradient(170deg, #f5f0e8 0%, #f8f4ed 47%, #efe7da 100%);
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
   }
 
-  button:disabled {
-    @apply cursor-not-allowed opacity-55;
+  body {
+    @apply bg-canvas text-ink antialiased font-sans selection:bg-brand-light selection:text-white;
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-display font-semibold tracking-tight;
   }
 }
 
 @layer components {
-  .panel-surface {
-    @apply rounded-2xl border border-line bg-paper shadow-panel;
+  .glass {
+    @apply backdrop-blur-md bg-white/70 border border-white/20 shadow-glass;
+  }
+
+  .premium-card {
+    @apply bg-white border border-line rounded-2xl p-6 transition-all duration-300 hover:shadow-premium hover:-translate-y-1;
   }
 
   .btn-primary {
-    @apply rounded-xl bg-gradient-to-r from-clay to-[#b94a1f] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-95;
+    @apply bg-brand text-white font-medium px-6 py-2.5 rounded-xl transition-all hover:bg-brand-dark active:scale-[0.98] disabled:opacity-50;
   }
 
-  .btn-quiet {
-    @apply rounded-xl border border-line bg-white/70 px-4 py-2 text-sm font-semibold text-[#2f465c] transition hover:bg-white;
+  .btn-outline {
+    @apply border border-line bg-transparent font-medium px-6 py-2.5 rounded-xl transition-all hover:bg-surface-100 active:scale-[0.98];
   }
 
-  .btn-emerald {
-    @apply rounded-xl bg-gradient-to-r from-cedar to-[#164a3f] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-95;
-  }
-
-  .chip {
-    @apply rounded-full border border-line bg-white/70 px-3 py-1 text-xs font-medium tracking-wide text-[#584f45];
+  .input-field {
+    @apply w-full bg-surface-50 border border-line rounded-xl px-4 py-2.5 outline-none transition-all focus:border-brand focus:ring-2 focus:ring-brand/10;
   }
 }
 

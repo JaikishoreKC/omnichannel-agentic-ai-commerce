@@ -42,21 +42,11 @@ class ProductService:
 
         products = self.product_repository.list_all()
 
-        def matches(item: dict[str, Any]) -> bool:
+        # Phase 1: Hard Filtering (Category, Brand, Price, Status)
+        def hard_filter(item: dict[str, Any]) -> bool:
             status = str(item.get("status", "active")).strip().lower()
             if status not in {"active"}:
                 return False
-            if normalized_query:
-                tags = item.get("tags", [])
-                features = item.get("features", [])
-                tag_text = " ".join(str(token) for token in tags) if isinstance(tags, list) else ""
-                feature_text = " ".join(str(token) for token in features) if isinstance(features, list) else ""
-                haystack = (
-                    f"{item['name']} {item['description']} {item.get('brand', '')} "
-                    f"{tag_text} {feature_text}"
-                ).lower()
-                if normalized_query not in haystack:
-                    return False
             if normalized_category and str(item["category"]).lower() != normalized_category:
                 return False
             if normalized_brand and str(item.get("brand", "")).lower() != normalized_brand:
@@ -67,7 +57,62 @@ class ProductService:
                 return False
             return True
 
-        filtered = [item for item in products if matches(item)]
+        candidates = [item for item in products if hard_filter(item)]
+
+        if not candidates:
+            return {
+                "products": [],
+                "pagination": {
+                    "page": safe_page,
+                    "limit": safe_limit,
+                    "total": 0,
+                    "pages": 0,
+                },
+            }
+
+        # Phase 2: Search (Semantic vs Basic)
+        if normalized_query:
+            try:
+                from sklearn.feature_extraction.text import TfidfVectorizer
+                from sklearn.metrics.pairwise import cosine_similarity
+                import numpy as np
+
+                # Prepare corpus
+                corpus = []
+                for item in candidates:
+                    tags = item.get("tags", [])
+                    features = item.get("features", [])
+                    tag_text = " ".join(str(token) for token in tags) if isinstance(tags, list) else ""
+                    feature_text = " ".join(str(token) for token in features) if isinstance(features, list) else ""
+                    text = f"{item['name']} {item['description']} {item.get('brand', '')} {tag_text} {feature_text}".lower()
+                    corpus.append(text)
+
+                vectorizer = TfidfVectorizer(stop_words='english')
+                tfidf_matrix = vectorizer.fit_transform(corpus)
+                query_vec = vectorizer.transform([normalized_query])
+                
+                similarities = cosine_similarity(query_vec, tfidf_matrix).flatten()
+                
+                # Zip and filter by minimum similarity threshold (e.g. 0.05) 
+                # or just use it for ranking
+                scored_candidates = []
+                for idx, score in enumerate(similarities):
+                    # We keep items that have some overlap or if the name literally matches
+                    if score > 0.0 or normalized_query in corpus[idx]:
+                        scored_candidates.append((score, candidates[idx]))
+
+                # Sort by score descending
+                scored_candidates.sort(key=lambda x: x[0], reverse=True)
+                filtered = [item for _, item in scored_candidates]
+            except Exception:
+                # Fallback to basic search if scikit-learn fails
+                def basic_match(item: dict[str, Any]) -> bool:
+                    haystack = f"{item['name']} {item.get('description', '')} {item.get('brand', '')}".lower()
+                    return normalized_query in haystack
+                filtered = [item for item in candidates if basic_match(item)]
+        else:
+            filtered = candidates
+
         total = len(filtered)
         start = (safe_page - 1) * safe_limit
         end = start + safe_limit

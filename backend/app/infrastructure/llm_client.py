@@ -164,12 +164,7 @@ class LLMClient:
     def enabled(self) -> bool:
         if not self.settings.llm_enabled:
             return False
-        provider = self.settings.llm_provider.strip().lower()
-        if provider == "openai":
-            return bool(self.settings.openai_api_key)
-        if provider == "anthropic":
-            return bool(self.settings.anthropic_api_key)
-        return False
+        return bool(self.settings.openrouter_api_key)
 
     @property
     def intent_classification_enabled(self) -> bool:
@@ -190,7 +185,7 @@ class LLMClient:
             return None
         user_prompt = self._build_classification_prompt(message=message, recent_messages=recent_messages or [])
         try:
-            raw = self.circuit_breaker.call(lambda: self._call_intent_model(user_prompt))
+            raw = self.circuit_breaker.call(lambda: self._call_llm(user_prompt=user_prompt, system_prompt=INTENT_CLASSIFICATION_PROMPT))
         except CircuitBreakerOpenError:
             return None
         except Exception:
@@ -230,7 +225,7 @@ class LLMClient:
             allowed_actions=sorted(self.SUPPORTED_PLANNER_ACTIONS.keys()),
         )
         try:
-            raw = self.circuit_breaker.call(lambda: self._call_action_planner_model(user_prompt))
+            raw = self.circuit_breaker.call(lambda: self._call_llm(user_prompt=user_prompt, system_prompt=ACTION_PLANNING_PROMPT))
         except CircuitBreakerOpenError:
             return None
         except Exception:
@@ -338,35 +333,18 @@ class LLMClient:
             return normalized_dict
         return None
 
-    def _call_intent_model(self, user_prompt: str) -> str:
-        provider = self.settings.llm_provider.strip().lower()
-        if provider == "openai":
-            return self._call_openai(user_prompt)
-        if provider == "anthropic":
-            return self._call_anthropic(user_prompt)
-        raise ValueError(f"Unsupported LLM provider: {provider}")
-
-    def _call_action_planner_model(self, user_prompt: str) -> str:
-        provider = self.settings.llm_provider.strip().lower()
-        if provider == "openai":
-            return self._call_openai_with_system(user_prompt=user_prompt, system_prompt=ACTION_PLANNING_PROMPT)
-        if provider == "anthropic":
-            return self._call_anthropic_with_system(user_prompt=user_prompt, system_prompt=ACTION_PLANNING_PROMPT)
-        raise ValueError(f"Unsupported LLM provider: {provider}")
-
-    def _call_openai(self, user_prompt: str) -> str:
-        return self._call_openai_with_system(user_prompt=user_prompt, system_prompt=INTENT_CLASSIFICATION_PROMPT)
-
-    def _call_openai_with_system(self, *, user_prompt: str, system_prompt: str) -> str:
-        api_key = self.settings.openai_api_key
+    def _call_llm(self, *, user_prompt: str, system_prompt: str) -> str:
+        api_key = self.settings.openrouter_api_key
         if not api_key:
-            raise ValueError("OPENAI_API_KEY is not configured")
+            raise ValueError("OPENROUTER_API_KEY is not configured")
 
         response = httpx.post(
-            "https://api.openai.com/v1/chat/completions",
+            f"{self.settings.openrouter_base_url.rstrip('/')}/chat/completions",
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
+                "HTTP-Referer": "http://localhost:5173",
+                "X-Title": "Omnichannel Agentic Commerce",
             },
             json={
                 "model": self.settings.llm_model,
@@ -384,49 +362,54 @@ class LLMClient:
         payload = response.json()
         choices = payload.get("choices", [])
         if not choices:
-            raise ValueError("No choices returned from OpenAI")
-        message = choices[0].get("message", {})
-        content = message.get("content")
+            raise ValueError("No choices returned from OpenRouter")
+        content = choices[0].get("message", {}).get("content")
         if not isinstance(content, str):
-            raise ValueError("Invalid OpenAI response content")
+            raise ValueError("Invalid OpenRouter response content")
         return content
 
-    def _call_anthropic(self, user_prompt: str) -> str:
-        return self._call_anthropic_with_system(user_prompt=user_prompt, system_prompt=INTENT_CLASSIFICATION_PROMPT)
-
-    def _call_anthropic_with_system(self, *, user_prompt: str, system_prompt: str) -> str:
-        api_key = self.settings.anthropic_api_key
+    async def stream_response(self, *, user_prompt: str, system_prompt: str):
+        api_key = self.settings.openrouter_api_key
         if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY is not configured")
+            raise ValueError("OPENROUTER_API_KEY is not configured")
 
-        response = httpx.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": self.settings.llm_model,
-                "max_tokens": self.settings.llm_max_tokens,
-                "temperature": self.settings.llm_temperature,
-                "system": system_prompt,
-                "messages": [{"role": "user", "content": user_prompt}],
-            },
-            timeout=self.settings.llm_timeout_seconds,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        content_parts = payload.get("content", [])
-        if not content_parts:
-            raise ValueError("No content returned from Anthropic")
-        first = content_parts[0]
-        if not isinstance(first, dict):
-            raise ValueError("Invalid Anthropic content structure")
-        text = first.get("text")
-        if not isinstance(text, str):
-            raise ValueError("Invalid Anthropic content text")
-        return text
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                f"{self.settings.openrouter_base_url.rstrip('/')}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "http://localhost:5173",
+                    "X-Title": "Omnichannel Agentic Commerce",
+                },
+                json={
+                    "model": self.settings.llm_model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "temperature": self.settings.llm_temperature,
+                    "max_tokens": self.settings.llm_max_tokens,
+                    "stream": True,
+                },
+                timeout=self.settings.llm_timeout_seconds,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    if line.startswith("data: "):
+                        data_str = line[6:].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(data_str)
+                            delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                            if delta:
+                                yield delta
+                        except json.JSONDecodeError:
+                            continue
 
     def _build_classification_prompt(self, *, message: str, recent_messages: list[dict[str, Any]]) -> str:
         recent_snippets = []

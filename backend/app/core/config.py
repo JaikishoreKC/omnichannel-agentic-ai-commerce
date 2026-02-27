@@ -16,7 +16,7 @@ class Settings:
     cors_origins: str = "http://localhost:5173"
     mongodb_uri: str = "mongodb://localhost:27017/commerce"
     redis_url: str = "redis://localhost:6379/0"
-    enable_external_services: bool = False
+    enable_external_services: bool = True
     rate_limit_anonymous_per_minute: int = 120
     rate_limit_authenticated_per_minute: int = 600
     rate_limit_admin_per_minute: int = 2000
@@ -26,10 +26,10 @@ class Settings:
     enforce_json_content_type: bool = True
     reject_duplicate_critical_headers: bool = True
     admin_mfa_required: bool = False
-    admin_mfa_static_code: str = ""
+    admin_mfa_totp_secret: str = "JBSWY3DPEHPK3PXP"  # Default secret (change in prod)
     llm_enabled: bool = False
-    llm_provider: str = "openai"
-    llm_model: str = "gpt-4o-mini"
+    llm_provider: str = "openrouter"
+    llm_model: str = "meta-llama/llama-3.1-8b-instruct:free"
     llm_timeout_seconds: float = 8.0
     llm_max_tokens: int = 200
     llm_temperature: float = 0.0
@@ -46,8 +46,9 @@ class Settings:
     orchestrator_max_actions_per_request: int = 5
     ws_heartbeat_interval_seconds: float = 25.0
     ws_heartbeat_timeout_seconds: float = 70.0
-    openai_api_key: str = ""
-    anthropic_api_key: str = ""
+    ws_max_message_chars: int = 2000
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
     superu_enabled: bool = False
     superu_api_url: str = "https://api.superu.ai"
     superu_api_key: str = ""
@@ -130,7 +131,7 @@ class Settings:
             ).lower()
             in {"1", "true", "yes"},
             admin_mfa_required=os.getenv("ADMIN_MFA_REQUIRED", "false").lower() in {"1", "true", "yes"},
-            admin_mfa_static_code=os.getenv("ADMIN_MFA_STATIC_CODE", cls.admin_mfa_static_code),
+            admin_mfa_totp_secret=os.getenv("ADMIN_MFA_TOTP_SECRET", cls.admin_mfa_totp_secret),
             llm_enabled=os.getenv("LLM_ENABLED", "false").lower() in {"1", "true", "yes"},
             llm_provider=os.getenv("LLM_PROVIDER", cls.llm_provider),
             llm_model=os.getenv("LLM_MODEL", cls.llm_model),
@@ -236,8 +237,14 @@ class Settings:
                     str(cls.ws_heartbeat_timeout_seconds),
                 )
             ),
-            openai_api_key=os.getenv("OPENAI_API_KEY", cls.openai_api_key),
-            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", cls.anthropic_api_key),
+            ws_max_message_chars=int(
+                os.getenv(
+                    "WS_MAX_MESSAGE_CHARS",
+                    str(cls.ws_max_message_chars),
+                )
+            ),
+            openrouter_api_key=os.getenv("OPENROUTER_API_KEY", cls.openrouter_api_key),
+            openrouter_base_url=os.getenv("OPENROUTER_BASE_URL", cls.openrouter_base_url),
             superu_enabled=os.getenv("SUPERU_ENABLED", "false").lower() in {"1", "true", "yes"},
             superu_api_url=os.getenv("SUPERU_API_URL", cls.superu_api_url),
             superu_api_key=os.getenv("SUPERU_API_KEY", cls.superu_api_key),

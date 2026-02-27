@@ -4,6 +4,8 @@ import asyncio
 import hashlib
 from dataclasses import asdict
 from typing import Any
+from app.infrastructure.logging import get_logger
+from app.infrastructure.logging import get_logger
 
 from app.agents.base_agent import BaseAgent
 from app.infrastructure.llm_client import LLMActionPlan, LLMClient
@@ -40,6 +42,7 @@ class Orchestrator:
         self.interaction_service = interaction_service
         self.memory_service = memory_service
         self.agents = agents
+        self.logger = get_logger(__name__)
 
     async def process_message(
         self,
@@ -49,6 +52,31 @@ class Orchestrator:
         user_id: str | None,
         channel: str,
     ) -> dict[str, Any]:
+        """Legacy synchronous-response entry point."""
+        payload = None
+        async for chunk in self.process_message_stream(
+            message=message,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            stream=False,
+        ):
+            if isinstance(chunk, dict) and chunk.get("type") == "final_response":
+                payload = chunk["payload"]
+        
+        if payload is None:
+            raise RuntimeError("Orchestrator failed to produce a final response")
+        return payload
+
+    async def process_message_stream(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        user_id: str | None,
+        channel: str,
+        stream: bool = False,
+    ):
         recent = self.interaction_service.recent(session_id=session_id, limit=12)
         if not recent and user_id:
             recent = self._recent_from_memory(user_id=user_id, limit=12)
@@ -139,7 +167,7 @@ class Orchestrator:
                 action = actions[0]
                 agent_name = action.target_agent or route_agent_name
                 agent = self.agents[agent_name]
-                result = agent.execute(action=action, context=context)
+                result = await asyncio.to_thread(agent.execute, action, context)
             else:
                 result, agent_name = await self._execute_multi_action(
                     route_agent_name=route_agent_name,
@@ -181,8 +209,35 @@ class Orchestrator:
                 "stepCount": 0,
                 "steps": [],
             }
+        
         payload = self._to_transport_payload(response)
 
+        # If streaming is requested and we have a message, yield it in chunks
+        # In the future, this is where we'd yield real LLM chunks
+        # If streaming is requested, yield it
+        if stream:
+            # Yield metadata first
+            yield {"type": "stream_start", "payload": {"agent": agent_name}}
+            
+            # Use the agent's native streaming if available
+            agent = self.agents[agent_name]
+            # Since execute_stream has a default impl in BaseAgent, we can just call it
+            # We need to pass the actual action used (either from planner or intent)
+            effective_action = AgentAction(name=intent.name, params=intent.entities)
+            if planner_plan and planner_plan.actions and planner_used:
+                 # If planner was used, we might have multiple actions, 
+                 # for now we stream the primary one or clarification
+                 if planner_plan.needs_clarification:
+                      effective_action = AgentAction(name="clarification", params={"query": planner_plan.clarification_question})
+                 else:
+                      effective_action = actions[0]
+
+            async for delta in agent.execute_stream(action=effective_action, context=context):
+                yield {"type": "stream_delta", "payload": {"delta": delta}}
+            
+            yield {"type": "stream_end", "payload": {}}
+
+        # Record and update context
         self.interaction_service.record(
             session_id=context.session_id,
             user_id=context.user_id,
@@ -207,7 +262,7 @@ class Orchestrator:
             )
         )
 
-        return payload
+        yield {"type": "final_response", "payload": payload}
 
     async def _record_memory(
         self,
@@ -240,7 +295,7 @@ class Orchestrator:
                 recent_messages=recent,
                 inferred_intent=inferred_intent,
             )
-        except Exception:
+        except (RuntimeError, ValueError):
             return None
 
     def _planner_execution_mode(self) -> str:

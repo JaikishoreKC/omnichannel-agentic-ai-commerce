@@ -134,11 +134,14 @@ backend/
 
 frontend/
   src/
-    App.tsx                  Main app UI and chat workflow
-    api.ts                   API/WebSocket client helpers
-    styles.css               Tailwind + visual system
-    types.ts                 Shared frontend types
-  tests/e2e/                 Playwright journeys
+  src/
+    api/                    Modularized API/WebSocket modules
+    components/             Premium UI Kit (ui, layout, features)
+    context/                Global state (Auth, Cart, Chat, Theme)
+    pages/                  Feature-rich application pages
+    styles.css              Refined typography and visual system
+    types.ts                Shared frontend types
+  tests/e2e/                 Playwright journeys (updated for premium UI)
 
 docs/                        PRD, SDD, architecture, API contracts, etc.
 monitoring/                  Prometheus + Grafana provisioning
@@ -725,21 +728,9 @@ Voice recovery pipeline is implemented with:
 
 Implemented controls in current codebase:
 
-- JWT access/refresh tokens
-- refresh token rotation
-- role checks for admin routes
-- per-tier rate limiting (anonymous/authenticated/admin)
-- abuse escalation with penalty windows
-- request body size limit
-- strict JSON content type checks for mutating API calls
-- duplicate critical header rejection
-- secure response headers:
-  - `Content-Security-Policy`
-  - `X-Content-Type-Options`
-  - `X-Frame-Options`
-  - `Referrer-Policy`
-  - `Permissions-Policy`
 - WebSocket origin validation against allowed CORS origins
+- TOTP MFA for admin authentication (replacing static codes)
+- Structured logging (structlog) for tamper-evident activity monitoring
 - tamper-evident admin activity logging + integrity check endpoint
 
 ## Observability
