@@ -64,7 +64,14 @@ export async function request<T>(
         let detail = `${response.status} ${response.statusText}`;
         try {
             const payload = await response.json();
-            detail = payload.error?.message ?? payload.detail ?? detail;
+            const rawDetail = payload.error?.message ?? payload.detail;
+            if (rawDetail) {
+                if (Array.isArray(rawDetail)) {
+                    detail = rawDetail.map((err: any) => `${err.loc?.join(".")}: ${err.msg}`).join(", ");
+                } else {
+                    detail = String(rawDetail);
+                }
+            }
         } catch {
             // Keep fallback error detail.
         }
