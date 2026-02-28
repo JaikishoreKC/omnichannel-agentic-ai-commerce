@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import suppress
 from typing import Any
 
 
@@ -46,6 +47,11 @@ class MongoClientManager:
     def client(self) -> Any:
         return self._client
 
+    def disconnect(self) -> None:
+        if self._client:
+            self._client.close()
+        self._client = None
+
 
 @dataclass
 class RedisClientManager:
@@ -87,3 +93,9 @@ class RedisClientManager:
     @property
     def client(self) -> Any:
         return self._client
+
+    def disconnect(self) -> None:
+        if self._client:
+            with suppress(Exception):
+                self._client.close()
+        self._client = None

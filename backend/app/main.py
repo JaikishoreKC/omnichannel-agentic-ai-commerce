@@ -165,8 +165,17 @@ async def handle_validation_exception(_: Request, exc: RequestValidationError) -
         },
     )
 
+from app.infrastructure.logging import get_logger
+logger = get_logger(__name__)
+
 @app.exception_handler(Exception)
-async def handle_unexpected_exception(_: Request, __: Exception) -> JSONResponse:
+async def handle_unexpected_exception(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception(
+        "unhandled_exception",
+        path=request.url.path,
+        method=request.method,
+        error=str(exc),
+    )
     return JSONResponse(
         status_code=500,
         content={

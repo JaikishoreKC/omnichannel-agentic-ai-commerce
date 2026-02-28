@@ -48,9 +48,10 @@ class SlidingWindowRateLimiter:
                 self._buckets[bucket_key] = bucket
 
             # Opportunistic cleanup for old windows.
+            # Opportunistic cleanup for old windows.
             stale_before = window_start - (window_seconds * 3)
             stale_keys = []
-            for candidate in self._buckets:
+            for candidate in list(self._buckets.keys()):
                 _, _, suffix = candidate.rpartition(":")
                 try:
                     candidate_window = int(suffix)
@@ -62,7 +63,7 @@ class SlidingWindowRateLimiter:
                 self._buckets.pop(candidate, None)
 
             stale_violations = []
-            for subject, row in self._violations.items():
+            for subject, row in list(self._violations.items()):
                 last_at = int(row.get("last_violation_at", 0))
                 blocked = int(row.get("blocked_until", 0))
                 if blocked <= now and last_at and now - last_at > 24 * 60 * 60:
