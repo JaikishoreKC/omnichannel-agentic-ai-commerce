@@ -10,8 +10,6 @@ from app.container import (
     orchestrator,
     session_service,
     settings,
-    state_persistence,
-    store,
 )
 
 def _stream_text_chunks(text: str, max_chars: int = 28) -> list[str]:
@@ -75,7 +73,7 @@ async def _ensure_active_session(
             "referrer": websocket.headers.get("origin", ""),
         },
     )
-    await asyncio.to_thread(state_persistence.save, store)
+    # await asyncio.to_thread(state_persistence.save, store) # Removed for Phase 6
     await _send_session_event(websocket, created)
     return str(created["id"]), created
 
@@ -132,7 +130,7 @@ async def _resolve_and_sync_user_session(
         if str(resolved_session["id"]) != session_id:
             session_id = str(resolved_session["id"])
             active_session = resolved_session
-            await asyncio.to_thread(state_persistence.save, store)
+            # await asyncio.to_thread(state_persistence.save, store) # Removed for Phase 6
             await _send_session_event(websocket, resolved_session)
             
     return session_id, active_session, user_id
@@ -305,7 +303,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     )
 
             if response:
-                await asyncio.to_thread(state_persistence.save, store)
+                # await asyncio.to_thread(state_persistence.save, store) # Removed for Phase 6
                 envelope: dict[str, object] = {"type": "response", "payload": response}
                 if stream_requested:
                     # In stream mode, we send a final response with empty message to signify completion

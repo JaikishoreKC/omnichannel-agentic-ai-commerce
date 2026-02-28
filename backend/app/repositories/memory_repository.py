@@ -5,44 +5,28 @@ from copy import deepcopy
 from typing import Any
 
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
-from app.store.in_memory import InMemoryStore
-
-
 class MemoryRepository:
     def __init__(
         self,
         *,
-        store: InMemoryStore,
         mongo_manager: MongoClientManager,
         redis_manager: RedisClientManager,
     ) -> None:
-        self.store = store
         self.mongo_manager = mongo_manager
         self.redis_manager = redis_manager
 
     def get(self, user_id: str) -> dict[str, Any] | None:
-        with self.store.lock:
-            payload = self.store.memories_by_user_id.get(user_id)
-            if payload is not None:
-                return deepcopy(payload)
-
         cached = self._read_from_redis(user_id)
         if cached is not None:
-            with self.store.lock:
-                self.store.memories_by_user_id[user_id] = deepcopy(cached)
             return deepcopy(cached)
 
         persisted = self._read_from_mongo(user_id)
         if persisted is not None:
-            with self.store.lock:
-                self.store.memories_by_user_id[user_id] = deepcopy(persisted)
             self._write_to_redis(user_id, persisted)
             return deepcopy(persisted)
         return None
 
     def upsert(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        with self.store.lock:
-            self.store.memories_by_user_id[user_id] = deepcopy(payload)
         self._write_to_redis(user_id, payload)
         self._write_to_mongo(user_id, payload)
         return deepcopy(payload)

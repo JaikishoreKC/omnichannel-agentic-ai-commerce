@@ -4,16 +4,14 @@ from copy import deepcopy
 from typing import Any
 
 from app.repositories.support_repository import SupportRepository
-from app.store.in_memory import InMemoryStore
+from app.core.utils import generate_id, iso_now
 
 
 class SupportService:
     def __init__(
         self,
-        store: InMemoryStore,
         support_repository: SupportRepository,
     ) -> None:
-        self.store = store
         self.support_repository = support_repository
 
     def create_ticket(
@@ -31,7 +29,7 @@ class SupportService:
             normalized_priority = "normal"
         normalized_category = str(category).strip().lower() or "general"
         ticket = {
-            "id": f"ticket_{self.store.next_id('item')}",
+            "id": generate_id("ticket"),
             "userId": user_id,
             "sessionId": session_id,
             "issue": issue.strip(),
@@ -43,12 +41,12 @@ class SupportService:
                 {
                     "actor": "customer",
                     "message": issue.strip(),
-                    "timestamp": self.store.iso_now(),
+                    "timestamp": iso_now(),
                 }
             ],
             "resolution": None,
-            "createdAt": self.store.iso_now(),
-            "updatedAt": self.store.iso_now(),
+            "createdAt": iso_now(),
+            "updatedAt": iso_now(),
         }
         return self.support_repository.create(ticket)
 

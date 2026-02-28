@@ -31,6 +31,7 @@ from app.repositories.order_repository import OrderRepository
 from app.repositories.product_repository import ProductRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.support_repository import SupportRepository
+from app.repositories.voice_repository import VoiceRepository
 from app.services.admin_service import AdminService
 from app.services.admin_activity_service import AdminActivityService
 from app.services.auth_service import AuthService
@@ -69,100 +70,84 @@ class Container:
         )
 
         self.auth_repository = AuthRepository(
-            store=self.store,
             mongo_manager=self.mongo_manager,
             redis_manager=self.redis_manager,
         )
         self.auth_service = AuthService(
-            store=self.store,
             settings=self.settings,
             auth_repository=self.auth_repository,
         )
         self.product_repository = ProductRepository(
-            store=self.store,
             mongo_manager=self.mongo_manager,
             redis_manager=self.redis_manager,
         )
         self.category_repository = CategoryRepository(
-            store=self.store,
             mongo_manager=self.mongo_manager,
             redis_manager=self.redis_manager,
         )
         self.inventory_repository = InventoryRepository(
-            store=self.store,
             mongo_manager=self.mongo_manager,
             redis_manager=self.redis_manager,
         )
         self.notification_repository = NotificationRepository(
-            store=self.store,
             mongo_manager=self.mongo_manager,
         )
         self.product_service = ProductService(
-            store=self.store,
             product_repository=self.product_repository,
             category_repository=self.category_repository,
             inventory_repository=self.inventory_repository,
         )
         self.category_service = CategoryService(
-            store=self.store,
             category_repository=self.category_repository,
             product_repository=self.product_repository,
         )
         self.session_repository = SessionRepository(
-            store=self.store,
             mongo_manager=self.mongo_manager,
             redis_manager=self.redis_manager,
         )
         self.session_service = SessionService(
-            store=self.store, 
             session_repository=self.session_repository
         )
         self.cart_repository = CartRepository(
-            store=self.store,
             mongo_manager=self.mongo_manager,
             redis_manager=self.redis_manager,
         )
         self.cart_service = CartService(
-            store=self.store,
             settings=self.settings,
             cart_repository=self.cart_repository,
             product_repository=self.product_repository,
+            session_repository=self.session_repository,
         )
         self.order_repository = OrderRepository(
-            store=self.store, 
             mongo_manager=self.mongo_manager
         )
         self.memory_repository = MemoryRepository(
-            store=self.store,
             mongo_manager=self.mongo_manager,
             redis_manager=self.redis_manager,
         )
         self.interaction_repository = InteractionRepository(
-            store=self.store,
             mongo_manager=self.mongo_manager,
             redis_manager=self.redis_manager,
         )
         self.support_repository = SupportRepository(
-            store=self.store,
             mongo_manager=self.mongo_manager,
         )
         self.admin_activity_repository = AdminActivityRepository(
-            store=self.store,
+            mongo_manager=self.mongo_manager,
+        )
+        self.voice_repository = VoiceRepository(
             mongo_manager=self.mongo_manager,
         )
         self.inventory_service = InventoryService(
-            store=self.store,
             inventory_repository=self.inventory_repository,
             product_repository=self.product_repository,
         )
-        self.payment_service = PaymentService(store=self.store)
+        self.payment_service = PaymentService()
         self.notification_service = NotificationService(
-            store=self.store,
             notification_repository=self.notification_repository,
         )
         self.superu_client = SuperUClient(settings=self.settings)
         self.order_service = OrderService(
-            store=self.store,
             cart_service=self.cart_service,
             inventory_service=self.inventory_service,
             payment_service=self.payment_service,
@@ -170,31 +155,29 @@ class Container:
             order_repository=self.order_repository,
         )
         self.memory_service = MemoryService(
-            store=self.store, 
             memory_repository=self.memory_repository
         )
         self.interaction_service = InteractionService(
-            store=self.store,
             interaction_repository=self.interaction_repository,
         )
         self.support_service = SupportService(
-            store=self.store,
             support_repository=self.support_repository,
         )
         self.admin_activity_service = AdminActivityService(
-            store=self.store,
             settings=self.settings,
             admin_activity_repository=self.admin_activity_repository,
         )
         self.voice_recovery_service = VoiceRecoveryService(
-            store=self.store,
             settings=self.settings,
             superu_client=self.superu_client,
             support_service=self.support_service,
             notification_service=self.notification_service,
+            voice_repository=self.voice_repository,
+            user_repository=self.auth_repository,
+            cart_repository=self.cart_repository,
+            order_repository=self.order_repository,
         )
         self.admin_service = AdminService(
-            store=self.store,
             session_repository=self.session_repository,
             order_repository=self.order_repository,
             interaction_repository=self.interaction_repository,
@@ -239,7 +222,6 @@ class Container:
     async def start(self) -> None:
         self.mongo_manager.connect()
         self.redis_manager.connect()
-        self.state_persistence.load(self.store)
 
     async def stop(self) -> None:
         self.mongo_manager.disconnect()
@@ -273,6 +255,7 @@ memory_repository = container.memory_repository
 interaction_repository = container.interaction_repository
 support_repository = container.support_repository
 admin_activity_repository = container.admin_activity_repository
+voice_repository = container.voice_repository
 inventory_service = container.inventory_service
 payment_service = container.payment_service
 notification_service = container.notification_service

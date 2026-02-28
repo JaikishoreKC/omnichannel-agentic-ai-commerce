@@ -8,18 +8,16 @@ from fastapi import HTTPException
 
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.product_repository import ProductRepository
-from app.store.in_memory import InMemoryStore
+from app.core.utils import iso_now
 
 
 class CategoryService:
     def __init__(
         self,
         *,
-        store: InMemoryStore,
         category_repository: CategoryRepository,
         product_repository: ProductRepository,
     ) -> None:
-        self.store = store
         self.category_repository = category_repository
         self.product_repository = product_repository
 
@@ -55,7 +53,7 @@ class CategoryService:
         return deepcopy(row)
 
     def create_category(self, payload: dict[str, Any]) -> dict[str, Any]:
-        now = self.store.iso_now()
+        now = iso_now()
         requested_slug = payload.get("slug") or payload.get("id") or payload.get("name")
         slug = self._slugify(requested_slug)
         if not slug:
@@ -106,7 +104,7 @@ class CategoryService:
         if patch.get("status") is not None:
             existing["status"] = self._normalize_status(patch["status"], default=existing["status"])
         existing["slug"] = next_slug
-        existing["updatedAt"] = self.store.iso_now()
+        existing["updatedAt"] = iso_now()
         self.category_repository.update(existing)
         return deepcopy(existing)
 

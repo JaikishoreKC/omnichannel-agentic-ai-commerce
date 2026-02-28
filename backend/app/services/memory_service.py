@@ -4,12 +4,11 @@ from copy import deepcopy
 from typing import Any
 
 from app.repositories.memory_repository import MemoryRepository
-from app.store.in_memory import InMemoryStore
+from app.core.utils import iso_now
 
 
 class MemoryService:
-    def __init__(self, store: InMemoryStore, memory_repository: MemoryRepository) -> None:
-        self.store = store
+    def __init__(self, memory_repository: MemoryRepository) -> None:
         self.memory_repository = memory_repository
 
     def _default_memory(self) -> dict[str, Any]:
@@ -30,7 +29,7 @@ class MemoryService:
                 "priceRanges": {},
                 "features": {},
             },
-            "updatedAt": self.store.iso_now(),
+            "updatedAt": iso_now(),
         }
 
     def get_memory_snapshot(self, user_id: str) -> dict[str, Any]:
@@ -52,7 +51,7 @@ class MemoryService:
             if value is not None:
                 prefs[key] = value
         payload["preferences"] = self._normalize_preferences(prefs)
-        payload["updatedAt"] = self.store.iso_now()
+        payload["updatedAt"] = iso_now()
         self.memory_repository.upsert(user_id, payload)
         return {"success": True, "preferences": deepcopy(payload["preferences"])}
 
@@ -78,7 +77,7 @@ class MemoryService:
                 prefs[key] = self._dedupe_preserve_order([*prefs.get(key, []), *tokens])
 
         payload["preferences"] = prefs
-        payload["updatedAt"] = self.store.iso_now()
+        payload["updatedAt"] = iso_now()
         self.memory_repository.upsert(user_id, payload)
         return {"success": True, "preferences": deepcopy(prefs)}
 
@@ -104,27 +103,27 @@ class MemoryService:
                 prefs[field] = [item for item in prefs.get(field, []) if item != normalized_value]
 
         payload["preferences"] = prefs
-        payload["updatedAt"] = self.store.iso_now()
+        payload["updatedAt"] = iso_now()
         self.memory_repository.upsert(user_id, payload)
         return {"success": True, "preferences": deepcopy(prefs)}
 
     def clear_preferences(self, *, user_id: str) -> dict[str, Any]:
         payload = self.get_memory_snapshot(user_id)
         payload["preferences"] = self._default_memory()["preferences"]
-        payload["updatedAt"] = self.store.iso_now()
+        payload["updatedAt"] = iso_now()
         self.memory_repository.upsert(user_id, payload)
         return {"success": True, "preferences": deepcopy(payload["preferences"])}
 
     def clear_history(self, *, user_id: str) -> dict[str, Any]:
         payload = self.get_memory_snapshot(user_id)
         payload["interactionHistory"] = []
-        payload["updatedAt"] = self.store.iso_now()
+        payload["updatedAt"] = iso_now()
         self.memory_repository.upsert(user_id, payload)
         return {"success": True}
 
     def clear_memory(self, *, user_id: str) -> dict[str, Any]:
         payload = self._default_memory()
-        payload["updatedAt"] = self.store.iso_now()
+        payload["updatedAt"] = iso_now()
         self.memory_repository.upsert(user_id, payload)
         return {"success": True}
 
@@ -182,7 +181,7 @@ class MemoryService:
         history.append(
             {
                 "type": intent,
-                "timestamp": self.store.iso_now(),
+                "timestamp": iso_now(),
                 "summary": {
                     "query": message[:180],
                     "action": intent,
@@ -229,7 +228,7 @@ class MemoryService:
             if brand:
                 brand_scores[brand] = int(brand_scores.get(brand, 0)) + 1
 
-        payload["updatedAt"] = self.store.iso_now()
+        payload["updatedAt"] = iso_now()
         self.memory_repository.upsert(user_id, payload)
 
     def get_history(self, *, user_id: str, limit: int = 20) -> dict[str, Any]:

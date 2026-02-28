@@ -1,7 +1,8 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Any
-from copy import deepcopy
+from app.core.utils import generate_id, iso_now
+from app.repositories.voice_repository import VoiceRepository
 
 def append_alert(
     *,
@@ -9,20 +10,17 @@ def append_alert(
     message: str,
     severity: str,
     details: dict[str, Any] | None = None,
-    store: Any,
+    voice_repository: VoiceRepository,
 ) -> None:
     alert = {
-        "id": f"valert_{store.next_id('item')}",
+        "id": generate_id("valert"),
         "code": code,
         "message": message,
         "severity": severity,
         "details": details or {},
-        "createdAt": store.iso_now(),
+        "createdAt": iso_now(),
     }
-    with store.lock:
-        store.voice_alerts.append(deepcopy(alert))
-        if len(store.voice_alerts) > 500:
-            store.voice_alerts = store.voice_alerts[-500:]
+    voice_repository.add_alert(alert)
 
 def evaluate_alerts(
     *,
@@ -42,7 +40,7 @@ def evaluate_alerts(
             message=f"Voice job backlog is high ({pending}).",
             severity="warning",
             details={"pendingJobs": pending},
-            store=voice_service.store,
+            voice_repository=voice_service.voice_repository,
         )
         generated += 1
 
@@ -57,12 +55,13 @@ def evaluate_alerts(
     if terminal:
         ratio = len(failed) / len(terminal)
         if ratio > failure_ratio_threshold:
+            ratio_val = float(ratio) # Ensure float
             append_alert(
                 code="VOICE_FAILURE_RATIO_HIGH",
-                message=f"Voice failure ratio today is {ratio:.2f}, above threshold.",
+                message=f"Voice failure ratio today is {ratio_val:.2f}, above threshold.",
                 severity="critical",
-                details={"terminalCalls": len(terminal), "failedCalls": len(failed), "ratio": ratio},
-                store=voice_service.store,
+                details={"terminalCalls": len(terminal), "failedCalls": len(failed), "ratio": ratio_val},
+                voice_repository=voice_service.voice_repository,
             )
             generated += 1
     return generated
@@ -71,13 +70,11 @@ def get_stats(
     *,
     now: datetime,
     settings: dict[str, Any],
-    store: Any,
     voice_service: Any,
 ) -> dict[str, Any]:
     today = now.date().isoformat()
-    with store.lock:
-        calls = list(store.voice_calls_by_id.values())
-        jobs = list(store.voice_jobs_by_id.values())
+    calls = voice_service.voice_repository.list_calls(limit=5000)
+    jobs = voice_service.voice_repository.list_jobs(limit=5000)
     calls_today = [row for row in calls if str(row.get("createdAt", "")).startswith(today)]
     completed_today = [row for row in calls_today if str(row.get("status", "")) == "completed"]
     failed_today = [row for row in calls_today if str(row.get("status", "")) == "failed"]

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Star, ShoppingCart, ArrowLeft, ShieldCheck, Truck, RotateCcw } from "lucide-react";
+import { Star, ShoppingCart, ArrowLeft, ShieldCheck, Truck, RotateCcw, Plus, Minus } from "lucide-react";
 import { fetchProduct } from "../api";
 import type { Product, ProductVariant } from "../types";
 import { Button } from "../components/ui/Button";
@@ -12,7 +12,7 @@ import { useCart } from "../context/CartContext";
 const ProductDetailPage: React.FC = () => {
     const { productId } = useParams<{ productId: string }>();
     const navigate = useNavigate();
-    const { addItem } = useCart();
+    const { addItem, updateItemQuantity, removeItem, cart } = useCart();
     const [product, setProduct] = useState<Product | null>(null);
     const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -35,11 +35,18 @@ const ProductDetailPage: React.FC = () => {
         load();
     }, [productId]);
 
+    const cartItem = cart?.items.find((item: any) => item.productId === product?.id && item.variantId === selectedVariant?.id);
+    const quantity = cartItem?.quantity || 0;
+
     const handleAddToCart = async () => {
         if (!product || !selectedVariant) return;
         setIsAdding(true);
         try {
-            await addItem(product.id, selectedVariant.id, 1);
+            if (quantity > 0) {
+                await updateItemQuantity(cartItem!.itemId, quantity + 1);
+            } else {
+                await addItem(product.id, selectedVariant.id, 1);
+            }
         } finally {
             setIsAdding(false);
         }
@@ -149,14 +156,51 @@ const ProductDetailPage: React.FC = () => {
                     </div>
 
                     <div className="flex gap-4 pt-4">
-                        <Button
-                            size="lg"
-                            className="flex-1 rounded-2xl gap-3 shadow-lg h-16"
-                            onClick={handleAddToCart}
-                            isLoading={isAdding}
-                        >
-                            <ShoppingCart size={20} /> Add to Bag
-                        </Button>
+                        {quantity > 0 ? (
+                            <div className="flex-1 flex items-center justify-between bg-surface-50 rounded-2xl h-16 px-6 gap-6 shadow-sm border border-line">
+                                <Button
+                                    variant="secondary"
+                                    size="icon"
+                                    className="w-10 h-10 rounded-xl bg-white shadow-sm hover:bg-surface-100"
+                                    onClick={async () => {
+                                        setIsAdding(true);
+                                        try {
+                                            if (quantity === 1) {
+                                                await removeItem(cartItem!.itemId);
+                                            } else {
+                                                await updateItemQuantity(cartItem!.itemId, quantity - 1);
+                                            }
+                                        } finally {
+                                            setIsAdding(false);
+                                        }
+                                    }}
+                                    disabled={isAdding}
+                                    data-testid={`decrease-qty-${product.id}`}
+                                >
+                                    <Minus size={18} />
+                                </Button>
+                                <div className="text-xl font-bold text-ink w-8 text-center">{quantity}</div>
+                                <Button
+                                    variant="secondary"
+                                    size="icon"
+                                    className="w-10 h-10 rounded-xl bg-white shadow-sm hover:bg-surface-100"
+                                    onClick={handleAddToCart}
+                                    disabled={isAdding}
+                                    data-testid={`increase-qty-${product.id}`}
+                                >
+                                    <Plus size={18} />
+                                </Button>
+                            </div>
+                        ) : (
+                            <Button
+                                size="lg"
+                                className="flex-1 rounded-2xl gap-3 shadow-lg h-16"
+                                onClick={handleAddToCart}
+                                isLoading={isAdding}
+                            >
+                                <ShoppingCart size={20} /> Add to Bag
+                            </Button>
+                        )}
                     </div>
 
                     {/* Features */}

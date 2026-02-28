@@ -8,18 +8,16 @@ from fastapi import HTTPException
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.product_repository import ProductRepository
-from app.store.in_memory import InMemoryStore
+from app.core.utils import generate_id, iso_now
 
 
 class ProductService:
     def __init__(
         self,
-        store: InMemoryStore,
         product_repository: ProductRepository,
         category_repository: CategoryRepository,
         inventory_repository: InventoryRepository,
     ) -> None:
-        self.store = store
         self.product_repository = product_repository
         self.category_repository = category_repository
         self.inventory_repository = inventory_repository
@@ -135,8 +133,7 @@ class ProductService:
         return deepcopy(product)
 
     def create_product(self, payload: dict[str, Any]) -> dict[str, Any]:
-        with self.store.lock:
-            product_id = payload.get("id") or self.store.next_id("item").replace("item", "prod")
+        product_id = payload.get("id") or generate_id("prod")
         if self.product_repository.get(product_id):
             raise HTTPException(status_code=409, detail="Product ID already exists")
         category = str(payload["category"]).strip().lower()
@@ -159,8 +156,8 @@ class ProductService:
             "features": list(payload.get("features", [])),
             "specifications": deepcopy(payload.get("specifications", {})),
             "status": str(payload.get("status", "active")).strip().lower(),
-            "createdAt": self.store.iso_now(),
-            "updatedAt": self.store.iso_now(),
+            "createdAt": iso_now(),
+            "updatedAt": iso_now(),
         }
         if product["status"] not in {"active", "draft", "archived"}:
             raise HTTPException(status_code=400, detail="Invalid product status")
@@ -218,7 +215,7 @@ class ProductService:
                 variants=product["variants"],
                 replace_existing=True,
             )
-        product["updatedAt"] = self.store.iso_now()
+        product["updatedAt"] = iso_now()
         self.product_repository.update(product)
         return deepcopy(product)
 
@@ -284,7 +281,7 @@ class ProductService:
                     "totalQuantity": total_quantity,
                     "reservedQuantity": reserved_quantity,
                     "availableQuantity": available_quantity,
-                    "updatedAt": self.store.iso_now(),
+                    "updatedAt": iso_now(),
                 }
             )
             variant["inStock"] = available_quantity > 0

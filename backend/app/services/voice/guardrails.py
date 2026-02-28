@@ -60,11 +60,10 @@ def budget_and_cap_guardrails(
     user_id: str,
     settings: dict[str, Any],
     now: datetime,
-    store: Any,
+    voice_service: Any,
 ) -> str:
     today = now.date().isoformat()
-    with store.lock:
-        calls = list(store.voice_calls_by_id.values())
+    calls = voice_service.voice_repository.list_calls(limit=5000)
 
     calls_today = [row for row in calls if str(row.get("createdAt", "")).startswith(today)]
     if len(calls_today) >= int(settings.get("maxCallsPerDay", 0)):

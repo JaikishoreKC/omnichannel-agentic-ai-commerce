@@ -5,32 +5,20 @@ from copy import deepcopy
 from typing import Any
 
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
-from app.store.in_memory import InMemoryStore
-
-
 class InventoryRepository:
     def __init__(
         self,
         *,
-        store: InMemoryStore,
         mongo_manager: MongoClientManager,
         redis_manager: RedisClientManager,
     ) -> None:
-        self.store = store
         self.mongo_manager = mongo_manager
         self.redis_manager = redis_manager
 
     def get(self, variant_id: str) -> dict[str, Any] | None:
-        with self.store.lock:
-            stock = self.store.inventory_by_variant.get(variant_id)
-            if stock is not None:
-                return deepcopy(stock)
-
         cached = self._read_from_redis(variant_id)
         if cached is not None:
-            with self.store.lock:
-                self.store.inventory_by_variant[variant_id] = deepcopy(cached)
-            return deepcopy(cached)
+            return cached
 
         collection = self._mongo_collection()
         if collection is None:
@@ -41,35 +29,19 @@ class InventoryRepository:
         payload.pop("_id", None)
         if not isinstance(payload, dict):
             return None
-        with self.store.lock:
-            self.store.inventory_by_variant[variant_id] = deepcopy(payload)
         self._write_to_redis(payload)
-        return deepcopy(payload)
+        return payload
 
     def upsert(self, stock: dict[str, Any]) -> dict[str, Any]:
-        variant_id = str(stock["variantId"])
-        with self.store.lock:
-            self.store.inventory_by_variant[variant_id] = deepcopy(stock)
         self._write_to_redis(stock)
         self._write_to_mongo(stock)
         return deepcopy(stock)
 
     def delete(self, variant_id: str) -> None:
-        with self.store.lock:
-            self.store.inventory_by_variant.pop(variant_id, None)
         self._delete_from_redis(variant_id)
         self._delete_from_mongo(variant_id)
 
     def list_by_product(self, product_id: str) -> list[dict[str, Any]]:
-        with self.store.lock:
-            cached = [
-                deepcopy(stock)
-                for stock in self.store.inventory_by_variant.values()
-                if str(stock.get("productId", "")) == product_id
-            ]
-        if cached:
-            return cached
-
         collection = self._mongo_collection()
         if collection is None:
             return []
@@ -79,10 +51,8 @@ class InventoryRepository:
             row.pop("_id", None)
             if isinstance(row, dict):
                 output.append(row)
-                with self.store.lock:
-                    self.store.inventory_by_variant[str(row["variantId"])] = deepcopy(row)
                 self._write_to_redis(row)
-        return [deepcopy(stock) for stock in output]
+        return output
 
     def _redis_client(self) -> Any | None:
         return self.redis_manager.client

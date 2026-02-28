@@ -12,3 +12,14 @@ export async function addToCart(input: {
 }): Promise<void> {
     await request("POST", "/cart/items", input);
 }
+
+export async function updateCartItem(
+    itemId: string,
+    quantity: number
+): Promise<void> {
+    await request("PUT", `/cart/items/${encodeURIComponent(itemId)}`, { quantity });
+}
+
+export async function removeFromCart(itemId: string): Promise<void> {
+    await request("DELETE", `/cart/items/${encodeURIComponent(itemId)}`);
+}

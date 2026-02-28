@@ -7,10 +7,15 @@ from app.services.voice.guardrails import in_quiet_hours, next_non_quiet_time, b
 from app.services.voice.campaign import build_campaign_payload
 from app.services.voice.alerts import append_alert
 
+from app.core.utils import generate_id, iso_now
+from app.repositories.voice_repository import VoiceRepository
+from app.repositories.cart_repository import CartRepository
+
 def enqueue_abandoned_cart_jobs(
     *,
     now: datetime,
-    store: Any,
+    voice_repository: VoiceRepository,
+    cart_repository: CartRepository,
     settings: dict[str, Any],
     voice_service: Any,
 ) -> int:
@@ -18,12 +23,15 @@ def enqueue_abandoned_cart_jobs(
         return 0
     cutoff = now - timedelta(minutes=int(settings.get("abandonmentMinutes", 30)))
     enqueued = 0
-    with store.lock:
-        carts = list(store.carts_by_id.values())
-        existing_jobs = list(store.voice_jobs_by_id.values())
+    
+    carts = cart_repository.list_all()
+    # existing_jobs = voice_repository.list_jobs(limit=5000)
+    # Actually, we might want to check recoveryKey efficiently. 
+    # For now, let's keep it simple and list all active jobs.
+    active_jobs = voice_repository.list_jobs(limit=2000)
     existing_keys = {
         str(job.get("recoveryKey", ""))
-        for job in existing_jobs
+        for job in active_jobs
         if str(job.get("status", ""))
         in {"queued", "retrying", "processing", "completed", "cancelled", "dead_letter"}
     }
@@ -40,13 +48,14 @@ def enqueue_abandoned_cart_jobs(
         if voice_service._has_newer_order(user_id=user_id, since=updated_at):
             continue
         recovery_key = f"{cart['id']}::{cart['updatedAt']}"
-        with store.lock:
-            if recovery_key in store.voice_call_idempotency:
-                continue
+        
+        # Idempotency check
+        # We can use a dedicated collection or just check voice_calls
         if recovery_key in existing_keys:
             continue
+            
         job = {
-            "id": f"vjob_{store.next_id('item')}",
+            "id": generate_id("vjob"),
             "status": "queued",
             "userId": user_id,
             "sessionId": str(cart.get("sessionId", "")),
@@ -55,11 +64,10 @@ def enqueue_abandoned_cart_jobs(
             "attempt": 0,
             "nextRunAt": now.isoformat(),
             "lastError": None,
-            "createdAt": store.iso_now(),
-            "updatedAt": store.iso_now(),
+            "createdAt": iso_now(),
+            "updatedAt": iso_now(),
         }
-        with store.lock:
-            store.voice_jobs_by_id[job["id"]] = deepcopy(job)
+        voice_repository.upsert_job(job)
         enqueued += 1
         existing_keys.add(recovery_key)
     return enqueued
@@ -67,20 +75,21 @@ def enqueue_abandoned_cart_jobs(
 def process_due_jobs(
     *,
     now: datetime,
-    store: Any,
+    voice_repository: VoiceRepository,
     voice_service: Any,
 ) -> dict[str, int]:
-    with store.lock:
-        jobs = [
-            deepcopy(job)
-            for job in store.voice_jobs_by_id.values()
-            if str(job.get("status", "")) in {"queued", "retrying"}
-            and parse_iso(job.get("nextRunAt")) is not None
-            and parse_iso(job.get("nextRunAt")) <= now
-        ]
-    jobs.sort(key=lambda row: str(row.get("nextRunAt", "")))
+    # We need to fetch jobs that are due
+    all_jobs = voice_repository.list_jobs(limit=1000)
+    due_jobs = [
+        job for job in all_jobs
+        if str(job.get("status", "")) in {"queued", "retrying"}
+        and parse_iso(job.get("nextRunAt")) is not None
+        and parse_iso(job.get("nextRunAt")) <= now
+    ]
+    due_jobs.sort(key=lambda row: str(row.get("nextRunAt", "")))
+    
     counters = {"completed": 0, "retried": 0, "deadLetter": 0, "cancelled": 0}
-    for job in jobs:
+    for job in due_jobs:
         result = process_single_job(job=job, now=now, voice_service=voice_service)
         counters[result] = counters.get(result, 0) + 1
     return counters
@@ -93,19 +102,19 @@ def process_single_job(
 ) -> str:
     settings = voice_service.get_settings()
     if bool(settings.get("killSwitch", False)):
-        complete_job(job_id=str(job["id"]), status="cancelled", error="kill_switch", store=voice_service.store)
+        complete_job(job_id=str(job["id"]), status="cancelled", error="kill_switch", voice_repository=voice_service.voice_repository)
         append_alert(
             code="VOICE_KILL_SWITCH_ACTIVE",
             message="Voice recovery kill switch is active; jobs are being cancelled.",
             severity="warning",
-            store=voice_service.store,
+            voice_repository=voice_service.voice_repository,
         )
         return "cancelled"
 
     user = voice_service._get_user(job.get("userId"))
     cart = voice_service._get_cart(job.get("cartId"))
     if not user or not cart or int(cart.get("itemCount", 0)) <= 0:
-        complete_job(job_id=str(job["id"]), status="cancelled", error="cart_or_user_missing", store=voice_service.store)
+        complete_job(job_id=str(job["id"]), status="cancelled", error="cart_or_user_missing", voice_repository=voice_service.voice_repository)
         voice_service._record_call_event(
             job=job,
             cart=cart,
@@ -117,31 +126,31 @@ def process_single_job(
 
     user_id = str(user.get("id", "")).strip()
     if user_id in voice_service._suppressed_users():
-        complete_job(job_id=str(job["id"]), status="cancelled", error="suppressed_user", store=voice_service.store)
+        complete_job(job_id=str(job["id"]), status="cancelled", error="suppressed_user", voice_repository=voice_service.voice_repository)
         voice_service._record_call_event(job=job, cart=cart, user=user, status="suppressed", error="suppressed_user")
         return "cancelled"
 
     phone = str(user.get("phone", "")).strip()
     if not phone:
-        complete_job(job_id=str(job["id"]), status="cancelled", error="missing_phone", store=voice_service.store)
+        complete_job(job_id=str(job["id"]), status="cancelled", error="missing_phone", voice_repository=voice_service.voice_repository)
         voice_service._record_call_event(job=job, cart=cart, user=user, status="skipped", error="missing_phone")
         return "cancelled"
 
     if in_quiet_hours(user=user, now=now, settings=settings):
         next_run = next_non_quiet_time(user=user, now=now, settings=settings)
-        reschedule_job(job_id=str(job["id"]), attempt=int(job.get("attempt", 0)), next_run=next_run, store=voice_service.store)
+        reschedule_job(job_id=str(job["id"]), attempt=int(job.get("attempt", 0)), next_run=next_run, voice_repository=voice_service.voice_repository)
         return "retried"
 
-    budget_decision = budget_and_cap_guardrails(user_id=user_id, settings=settings, now=now, store=voice_service.store)
+    budget_decision = budget_and_cap_guardrails(user_id=user_id, settings=settings, now=now, voice_service=voice_service)
     if budget_decision != "ok":
-        complete_job(job_id=str(job["id"]), status="cancelled", error=budget_decision, store=voice_service.store)
+        complete_job(job_id=str(job["id"]), status="cancelled", error=budget_decision, voice_repository=voice_service.voice_repository)
         voice_service._record_call_event(job=job, cart=cart, user=user, status="skipped", error=budget_decision)
         append_alert(
             code="VOICE_GUARDRAIL_TRIGGERED",
             message=f"Voice call blocked by guardrail: {budget_decision}",
             severity="warning",
             details={"userId": user_id, "jobId": str(job["id"])},
-            store=voice_service.store,
+            voice_repository=voice_service.voice_repository,
         )
         return "cancelled"
 
@@ -151,7 +160,7 @@ def process_single_job(
     attempt_number = int(job.get("attempt", 0)) + 1
 
     if not voice_service.superu_client.enabled:
-        complete_job(job_id=str(job["id"]), status="cancelled", error="provider_not_configured", store=voice_service.store)
+        complete_job(job_id=str(job["id"]), status="cancelled", error="provider_not_configured", voice_repository=voice_service.voice_repository)
         voice_service._record_call_event(
             job=job,
             cart=cart,
@@ -164,11 +173,11 @@ def process_single_job(
             code="VOICE_PROVIDER_NOT_CONFIGURED",
             message="Voice recovery is enabled but SuperU credentials are missing.",
             severity="critical",
-            store=voice_service.store,
+            voice_repository=voice_service.voice_repository,
         )
         return "cancelled"
     if not assistant_id or not from_phone_number:
-        complete_job(job_id=str(job["id"]), status="cancelled", error="provider_not_configured", store=voice_service.store)
+        complete_job(job_id=str(job["id"]), status="cancelled", error="provider_not_configured", voice_repository=voice_service.voice_repository)
         voice_service._record_call_event(
             job=job,
             cart=cart,
@@ -181,7 +190,7 @@ def process_single_job(
             code="VOICE_PROVIDER_NOT_CONFIGURED",
             message="Voice settings require assistantId and fromPhoneNumber.",
             severity="critical",
-            store=voice_service.store,
+            voice_repository=voice_service.voice_repository,
         )
         return "cancelled"
 
@@ -198,7 +207,7 @@ def process_single_job(
             },
         )
         provider_call_id = extract_provider_call_id(response)
-        complete_job(job_id=str(job["id"]), status="completed", error=None, store=voice_service.store)
+        complete_job(job_id=str(job["id"]), status="completed", error=None, voice_repository=voice_service.voice_repository)
         voice_service._record_call_event(
             job=job,
             cart=cart,
@@ -210,16 +219,13 @@ def process_single_job(
             provider_call_id=provider_call_id,
             attempt_number=attempt_number,
         )
-        with voice_service.store.lock:
-            voice_service.store.voice_call_idempotency[str(job.get("recoveryKey", ""))] = provider_call_id or str(
-                job["id"]
-            )
+        # Idempotency is handled by checking existing_keys in enqueue_abandoned_cart_jobs
         return "completed"
     except RuntimeError as exc:
         error = str(exc)
         max_attempts = max(1, int(settings.get("maxAttemptsPerCart", 3)))
         if attempt_number >= max_attempts:
-            complete_job(job_id=str(job["id"]), status="dead_letter", error=error, store=voice_service.store)
+            complete_job(job_id=str(job["id"]), status="dead_letter", error=error, voice_repository=voice_service.voice_repository)
             voice_service._record_call_event(
                 job=job,
                 cart=cart,
@@ -234,14 +240,14 @@ def process_single_job(
                 message="Voice call job moved to dead-letter after max retries.",
                 severity="critical",
                 details={"jobId": str(job["id"]), "error": error},
-                store=voice_service.store,
+                voice_repository=voice_service.voice_repository,
             )
             return "deadLetter"
 
         backoffs = normalize_backoff_list(settings.get("retryBackoffSeconds"))
         delay = backoffs[min(attempt_number - 1, len(backoffs) - 1)]
         next_run = now + timedelta(seconds=delay)
-        reschedule_job(job_id=str(job["id"]), attempt=attempt_number, next_run=next_run, error=error, store=voice_service.store)
+        reschedule_job(job_id=str(job["id"]), attempt=attempt_number, next_run=next_run, error=error, voice_repository=voice_service.voice_repository)
         voice_service._record_call_event(
             job=job,
             cart=cart,
@@ -259,30 +265,28 @@ def reschedule_job(
     job_id: str,
     attempt: int,
     next_run: datetime,
-    store: Any,
+    voice_repository: VoiceRepository,
     error: str | None = None,
 ) -> None:
-    with store.lock:
-        current = store.voice_jobs_by_id.get(job_id)
-        if current is None:
-            return
-        updated = deepcopy(current)
-        updated["status"] = "retrying"
-        updated["attempt"] = max(0, int(attempt))
-        updated["nextRunAt"] = next_run.isoformat()
-        updated["lastError"] = error
-        updated["updatedAt"] = store.iso_now()
-        store.voice_jobs_by_id[job_id] = deepcopy(updated)
+    current = voice_repository.get_job(job_id)
+    if current is None:
+        return
+    updated = deepcopy(current)
+    updated["status"] = "retrying"
+    updated["attempt"] = max(0, int(attempt))
+    updated["nextRunAt"] = next_run.isoformat()
+    updated["lastError"] = error
+    updated["updatedAt"] = iso_now()
+    voice_repository.upsert_job(updated)
 
-def complete_job(*, job_id: str, status: str, error: str | None, store: Any) -> None:
-    with store.lock:
-        current = store.voice_jobs_by_id.get(job_id)
-        if current is None:
-            return
-        updated = deepcopy(current)
-        updated["status"] = status
-        updated["lastError"] = error
-        updated["updatedAt"] = store.iso_now()
-        if status in {"completed", "cancelled", "dead_letter"}:
-            updated["nextRunAt"] = None
-        store.voice_jobs_by_id[job_id] = deepcopy(updated)
+def complete_job(*, job_id: str, status: str, error: str | None, voice_repository: VoiceRepository) -> None:
+    current = voice_repository.get_job(job_id)
+    if current is None:
+        return
+    updated = deepcopy(current)
+    updated["status"] = status
+    updated["lastError"] = error
+    updated["updatedAt"] = iso_now()
+    if status in {"completed", "cancelled", "dead_letter"}:
+        updated["nextRunAt"] = None
+    voice_repository.upsert_job(updated)

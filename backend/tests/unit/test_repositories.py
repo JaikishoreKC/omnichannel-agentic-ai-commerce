@@ -1,3 +1,6 @@
+import json
+from copy import deepcopy
+from typing import Any
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.category_repository import CategoryRepository
@@ -12,18 +15,216 @@ from app.repositories.product_repository import ProductRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.support_repository import SupportRepository
 from app.store.in_memory import InMemoryStore
+from app.services.session_service import SessionService
 
+class _FakeRedisClient:
+    def __init__(self) -> None:
+        self.store: dict[str, Any] = {}
+
+    def set(self, key: str, value: str, ex: int | None = None) -> None:
+        self.store[key] = value
+
+    def get(self, key: str) -> Any:
+        return self.store.get(key)
+
+    def delete(self, key: str) -> None:
+        self.store.pop(key, None)
+
+    def scan_iter(self, match: str = "*") -> Any:
+        prefix = match.replace("*", "")
+        for k in self.store:
+            if k.startswith(prefix):
+                yield k
+
+    def flushall(self) -> None:
+        self.store.clear()
+
+class _FakeMongoCollection:
+    def __init__(self) -> None:
+        self.docs: list[dict[str, Any]] = []
+
+    def find(self, filter: dict[str, Any] | None = None, *args: Any, **kwargs: Any) -> Any:
+        def match_doc(doc, f):
+            if not f: return True
+            for k, v in f.items():
+                if k == "$or":
+                    if not any(match_doc(doc, cond) for cond in v): return False
+                elif k == "$and":
+                    if not all(match_doc(doc, cond) for cond in v): return False
+                else:
+                    actual_val = None
+                    exists = False
+                    if "." in k:
+                        parts = k.split(".")
+                        curr = [doc]
+                        for p in parts:
+                            next_curr = []
+                            for item in curr:
+                                if isinstance(item, dict):
+                                    if p in item:
+                                        next_curr.append(item[p])
+                                        exists = True
+                                elif isinstance(item, list):
+                                    for sub in item:
+                                        if isinstance(sub, dict) and p in sub:
+                                            next_curr.append(sub[p])
+                                            exists = True
+                            curr = next_curr
+                        actual_val = curr
+                    else:
+                        actual_val = doc.get(k)
+                        exists = k in doc
+                    
+                    if isinstance(v, dict) and "$exists" in v:
+                        if v["$exists"] != exists: return False
+                    elif isinstance(v, dict) and "$ne" in v:
+                        if actual_val == v["$ne"]: return False
+                    elif isinstance(v, dict) and "$regex" in v:
+                        import re
+                        if not re.search(str(v["$regex"]), str(actual_val)): return False
+                    elif "." in k:
+                        if v not in actual_val: return False
+                    else:
+                        if actual_val != v: return False
+            return True
+
+        results = [deepcopy(doc) for doc in self.docs if match_doc(doc, filter)]
+        
+        class FakeCursor(list):
+            def sort(self, *args: Any, **kwargs: Any) -> "FakeCursor":
+                if args:
+                    if isinstance(args[0], list):
+                        for field, direction in reversed(args[0]):
+                            super().sort(key=lambda x: x.get(field), reverse=(direction == -1))
+                    elif len(args) >= 2:
+                        field, direction = args[0], args[1]
+                        super().sort(key=lambda x: x.get(str(field)), reverse=(direction == -1))
+                else:
+                    super().sort(**kwargs)
+                return self
+        return FakeCursor(results)
+
+    def find_one(self, filter: dict[str, Any], sort: list[tuple[str, int]] | None = None) -> dict[str, Any] | None:
+        res = self.find(filter)
+        if sort:
+            # Very basic sort for the fake
+            for field, direction in reversed(sort):
+                res.sort(key=lambda x: x.get(field), reverse=(direction == -1))
+        return res[0] if res else None
+
+    def update_one(self, filter: dict[str, Any], update: dict[str, Any], upsert: bool = False) -> Any:
+        def match_doc(doc, f):
+            if not f: return True
+            for k, v in f.items():
+                if "." in k:
+                    parts = k.split(".")
+                    curr = [doc]
+                    for p in parts:
+                        next_curr = []
+                        for item in curr:
+                            if isinstance(item, dict):
+                                if p in item: next_curr.append(item[p])
+                            elif isinstance(item, list):
+                                for sub in item:
+                                    if isinstance(sub, dict) and p in sub: next_curr.append(sub[p])
+                        curr = next_curr
+                    if v not in curr: return False
+                elif doc.get(k) != v: return False
+            return True
+
+        matched_idx = -1
+        for i, d in enumerate(self.docs):
+            if match_doc(d, filter):
+                matched_idx = i
+                break
+        
+        if matched_idx == -1:
+            if upsert:
+                new_doc = {}
+                for k, v in filter.items():
+                    if not k.startswith("$") and "." not in k: new_doc[k] = v
+                if "$set" in update: new_doc.update(deepcopy(update["$set"]))
+                self.docs.append(new_doc)
+                class Result: matched_count = 0; upserted_id = "new"
+                return Result()
+            class Result: matched_count = 0; upserted_id = None
+            return Result()
+            
+        doc = self.docs[matched_idx]
+        if "$set" in update:
+            for k, v in update["$set"].items():
+                if ".$.inStock" in k:
+                    prefix = k.split(".$.")[0]
+                    attr = k.split(".$.")[1]
+                    var_id = filter.get("variants.id")
+                    for var in doc.get(prefix, []):
+                        if var.get("id") == var_id:
+                            var[attr] = v
+                            break
+                elif "." in k:
+                    parts = k.split(".")
+                    curr = doc
+                    for p in parts[:-1]:
+                        if p not in curr: curr[p] = {}
+                        curr = curr[p]
+                    curr[parts[-1]] = v
+                else:
+                    doc[k] = v
+        
+        class Result: matched_count = 1; upserted_id = None
+        return Result()
+
+    def delete_one(self, filter: dict[str, Any]) -> Any:
+        doc = self.find_one(filter)
+        if doc:
+            for i, d in enumerate(self.docs):
+                if d == doc:
+                    self.docs.pop(i)
+                    break
+        class Result: deleted_count = 1 if doc else 0
+        return Result()
+
+    def distinct(self, key: str) -> list[Any]:
+        return list(set(d.get(key) for d in self.docs if d.get(key) is not None))
+
+class _FakeDatabase:
+    def __init__(self) -> None:
+        self.collections: dict[str, _FakeMongoCollection] = {}
+
+    def __getitem__(self, name: str) -> _FakeMongoCollection:
+        if name not in self.collections:
+            self.collections[name] = _FakeMongoCollection()
+        return self.collections[name]
+
+class _FakeMongoClient:
+    def __init__(self) -> None:
+        self.databases: dict[str, _FakeDatabase] = {}
+
+    def get_default_database(self) -> _FakeDatabase:
+        return self["commerce"]
+
+    def __getitem__(self, name: str) -> _FakeDatabase:
+        if name not in self.databases:
+            self.databases[name] = _FakeDatabase()
+        return self.databases[name]
 
 def _disabled_managers() -> tuple[MongoClientManager, RedisClientManager]:
     mongo = MongoClientManager(uri="mongodb://localhost:27017/commerce", enabled=False)
     redis = RedisClientManager(url="redis://localhost:6379/0", enabled=False)
     return mongo, redis
 
+def _fake_managers() -> tuple[MongoClientManager, RedisClientManager]:
+    mongo = MongoClientManager(uri="mongodb://localhost:27017/commerce", enabled=True)
+    mongo._client = _FakeMongoClient()
+    redis = RedisClientManager(url="redis://localhost:6379/0", enabled=True)
+    redis._client = _FakeRedisClient()
+    return mongo, redis
+
 
 def test_cart_repository_roundtrip_in_memory() -> None:
     store = InMemoryStore()
-    mongo_manager, redis_manager = _disabled_managers()
-    repo = CartRepository(store=store, mongo_manager=mongo_manager, redis_manager=redis_manager)
+    mongo_manager, redis_manager = _fake_managers()
+    repo = CartRepository(mongo_manager=mongo_manager, redis_manager=redis_manager)
 
     cart = {
         "id": "cart_test_1",
@@ -56,8 +257,8 @@ def test_cart_repository_roundtrip_in_memory() -> None:
 
 def test_order_repository_roundtrip_and_idempotency() -> None:
     store = InMemoryStore()
-    mongo_manager, _ = _disabled_managers()
-    repo = OrderRepository(store=store, mongo_manager=mongo_manager)
+    mongo_manager, _ = _fake_managers()
+    repo = OrderRepository(mongo_manager=mongo_manager)
 
     order = {
         "id": "order_test_1",
@@ -97,8 +298,8 @@ def test_order_repository_roundtrip_and_idempotency() -> None:
 
 def test_memory_repository_roundtrip_in_memory() -> None:
     store = InMemoryStore()
-    mongo_manager, redis_manager = _disabled_managers()
-    repo = MemoryRepository(store=store, mongo_manager=mongo_manager, redis_manager=redis_manager)
+    mongo_manager, redis_manager = _fake_managers()
+    repo = MemoryRepository(mongo_manager=mongo_manager, redis_manager=redis_manager)
 
     payload = {
         "preferences": {"size": "M", "brandPreferences": ["Nike"], "categories": ["shoes"], "priceRange": {"min": 50, "max": 200}},
@@ -116,9 +317,8 @@ def test_memory_repository_roundtrip_in_memory() -> None:
 
 def test_auth_repository_roundtrip_user_and_refresh() -> None:
     store = InMemoryStore()
-    mongo_manager, redis_manager = _disabled_managers()
+    mongo_manager, redis_manager = _fake_managers()
     repo = AuthRepository(
-        store=store,
         mongo_manager=mongo_manager,
         redis_manager=redis_manager,
     )
@@ -154,9 +354,8 @@ def test_auth_repository_roundtrip_user_and_refresh() -> None:
 
 def test_interaction_repository_roundtrip_in_memory() -> None:
     store = InMemoryStore()
-    mongo_manager, redis_manager = _disabled_managers()
+    mongo_manager, redis_manager = _fake_managers()
     repo = InteractionRepository(
-        store=store,
         mongo_manager=mongo_manager,
         redis_manager=redis_manager,
     )
@@ -185,8 +384,8 @@ def test_interaction_repository_roundtrip_in_memory() -> None:
 
 def test_support_repository_roundtrip_open_tickets() -> None:
     store = InMemoryStore()
-    mongo_manager, _ = _disabled_managers()
-    repo = SupportRepository(store=store, mongo_manager=mongo_manager)
+    mongo_manager, _ = _fake_managers()
+    repo = SupportRepository(mongo_manager=mongo_manager)
 
     ticket = {
         "id": "ticket_test_1",
@@ -207,8 +406,8 @@ def test_support_repository_roundtrip_open_tickets() -> None:
 
 def test_session_repository_count_cached() -> None:
     store = InMemoryStore()
-    mongo_manager, redis_manager = _disabled_managers()
-    repo = SessionRepository(store=store, mongo_manager=mongo_manager, redis_manager=redis_manager)
+    mongo_manager, redis_manager = _fake_managers()
+    repo = SessionRepository(mongo_manager=mongo_manager, redis_manager=redis_manager)
 
     assert repo.count() == 0
     repo.create(
@@ -227,10 +426,9 @@ def test_session_repository_count_cached() -> None:
 
 def test_session_repository_find_latest_for_user() -> None:
     from datetime import timedelta
-
     store = InMemoryStore()
-    mongo_manager, redis_manager = _disabled_managers()
-    repo = SessionRepository(store=store, mongo_manager=mongo_manager, redis_manager=redis_manager)
+    mongo_manager, redis_manager = _fake_managers()
+    repo = SessionRepository(mongo_manager=mongo_manager, redis_manager=redis_manager)
     now = store.utc_now()
 
     repo.create(
@@ -263,13 +461,10 @@ def test_session_repository_find_latest_for_user() -> None:
 
 def test_session_repository_cleanup_expired_sessions() -> None:
     from datetime import timedelta
-
-    from app.services.session_service import SessionService
-
     store = InMemoryStore()
-    mongo_manager, redis_manager = _disabled_managers()
-    repo = SessionRepository(store=store, mongo_manager=mongo_manager, redis_manager=redis_manager)
-    service = SessionService(store=store, session_repository=repo)
+    mongo_manager, redis_manager = _fake_managers()
+    repo = SessionRepository(mongo_manager=mongo_manager, redis_manager=redis_manager)
+    service = SessionService(session_repository=repo)
 
     expired_id = "session_expired_1"
     active_id = "session_active_1"
@@ -305,14 +500,12 @@ def test_session_repository_cleanup_expired_sessions() -> None:
 
 def test_product_and_inventory_repositories_roundtrip() -> None:
     store = InMemoryStore()
-    mongo_manager, redis_manager = _disabled_managers()
+    mongo_manager, redis_manager = _fake_managers()
     product_repo = ProductRepository(
-        store=store,
         mongo_manager=mongo_manager,
         redis_manager=redis_manager,
     )
     inventory_repo = InventoryRepository(
-        store=store,
         mongo_manager=mongo_manager,
         redis_manager=redis_manager,
     )
@@ -366,7 +559,7 @@ def test_product_and_inventory_repositories_roundtrip() -> None:
 def test_notification_repository_roundtrip_in_memory() -> None:
     store = InMemoryStore()
     mongo_manager, _ = _disabled_managers()
-    repo = NotificationRepository(store=store, mongo_manager=mongo_manager)
+    repo = NotificationRepository(mongo_manager=mongo_manager)
 
     notification = {
         "id": "notif_test_1",
@@ -385,9 +578,8 @@ def test_notification_repository_roundtrip_in_memory() -> None:
 
 def test_category_repository_roundtrip_in_memory() -> None:
     store = InMemoryStore()
-    mongo_manager, redis_manager = _disabled_managers()
+    mongo_manager, redis_manager = _fake_managers()
     repo = CategoryRepository(
-        store=store,
         mongo_manager=mongo_manager,
         redis_manager=redis_manager,
     )
@@ -422,8 +614,8 @@ def test_category_repository_roundtrip_in_memory() -> None:
 
 def test_admin_activity_repository_roundtrip_in_memory() -> None:
     store = InMemoryStore()
-    mongo_manager, _redis_manager = _disabled_managers()
-    repo = AdminActivityRepository(store=store, mongo_manager=mongo_manager)
+    mongo_manager, _redis_manager = _fake_managers()
+    repo = AdminActivityRepository(mongo_manager=mongo_manager)
 
     payload = {
         "id": "admin_log_test_1",

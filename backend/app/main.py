@@ -24,7 +24,6 @@ from app.middleware import (
     apply_response_security_headers,
     enforce_request_hardening,
     enforce_rate_limits,
-    persist_state_on_mutation,
     collect_http_metrics,
 )
 
@@ -82,7 +81,6 @@ app.add_middleware(
 app.middleware("http")(apply_response_security_headers)
 app.middleware("http")(enforce_request_hardening)
 app.middleware("http")(enforce_rate_limits)
-app.middleware("http")(persist_state_on_mutation)
 app.middleware("http")(collect_http_metrics)
 
 app.include_router(auth_router, prefix=settings.api_prefix)

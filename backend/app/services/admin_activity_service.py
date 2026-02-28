@@ -8,18 +8,16 @@ from typing import Any
 
 from app.core.config import Settings
 from app.repositories.admin_activity_repository import AdminActivityRepository
-from app.store.in_memory import InMemoryStore
+from app.core.utils import generate_id, iso_now
 
 
 class AdminActivityService:
     def __init__(
         self,
         *,
-        store: InMemoryStore,
         settings: Settings,
         admin_activity_repository: AdminActivityRepository,
     ) -> None:
-        self.store = store
         self.settings = settings
         self.admin_activity_repository = admin_activity_repository
 
@@ -35,12 +33,13 @@ class AdminActivityService:
         ip_address: str | None,
         user_agent: str | None,
     ) -> dict[str, Any]:
-        with self.store.lock:
-            previous_hash = ""
-            if self.store.admin_activity_logs:
-                previous_hash = str(self.store.admin_activity_logs[-1].get("entryHash", "")).strip()
+        previous_hash = ""
+        latest = self.admin_activity_repository.get_latest()
+        if latest:
+            previous_hash = str(latest.get("entryHash", "")).strip()
+
         payload = {
-            "id": f"admin_log_{self.store.next_id('item')}",
+            "id": generate_id("admin_log"),
             "adminId": str(admin_user.get("id", "")),
             "adminEmail": str(admin_user.get("email", "")),
             "action": action,
@@ -52,7 +51,7 @@ class AdminActivityService:
             },
             "ipAddress": ip_address or "",
             "userAgent": user_agent or "",
-            "timestamp": self.store.iso_now(),
+            "timestamp": iso_now(),
             "prevHash": previous_hash,
             "hashVersion": "v1",
         }
@@ -64,19 +63,30 @@ class AdminActivityService:
 
     def verify_integrity(self, *, limit: int = 5000) -> dict[str, Any]:
         safe_limit = max(1, min(limit, 10000))
-        with self.store.lock:
-            logs = deepcopy(self.store.admin_activity_logs[-safe_limit:])
+        logs = self.admin_activity_repository.list_recent(limit=safe_limit)
+        # list_recent returns them sorted DESC by timestamp. 
+        # For verification, we likely want them ASC if we're chaining hashes.
+        logs.reverse()
 
         if not logs:
             return {"ok": True, "total": 0, "issues": []}
 
         issues: list[dict[str, Any]] = []
         expected_prev = ""
-        for row in logs:
+        # Note: If we only have the last N logs, we can't verify the very first one's prevHash if it was non-empty.
+        # But for now let's assume if it's the start of our check, we might not know the exact expected_prev.
+        # However, if we start from the very beginning of the collection, expected_prev = "".
+        # For a partial list, this check might fail on the first element.
+        for i, row in enumerate(logs):
             row_id = str(row.get("id", "")).strip()
             prev_hash = str(row.get("prevHash", "")).strip()
             entry_hash = str(row.get("entryHash", "")).strip()
-            if prev_hash != expected_prev:
+            
+            if i == 0 and prev_hash != "":
+                 # If it's a sliding window check, we might need to skip prevHash check for the first element
+                 # OR fetch the one before it.
+                 pass
+            elif prev_hash != expected_prev:
                 issues.append(
                     {
                         "id": row_id,

@@ -9,21 +9,21 @@ from fastapi import HTTPException
 from app.core.config import Settings
 from app.repositories.cart_repository import CartRepository
 from app.repositories.product_repository import ProductRepository
-from app.store.in_memory import InMemoryStore
+from app.core.utils import generate_id, iso_now, utc_now
 
 
 class CartService:
     def __init__(
         self,
-        store: InMemoryStore,
         settings: Settings,
         cart_repository: CartRepository,
         product_repository: ProductRepository,
+        session_repository: Any,
     ) -> None:
-        self.store = store
         self.settings = settings
         self.cart_repository = cart_repository
         self.product_repository = product_repository
+        self.session_repository = session_repository
         self._cart_ttl_hours = 24
 
     def get_cart(self, user_id: str | None, session_id: str) -> dict[str, Any]:
@@ -43,64 +43,60 @@ class CartService:
         if not variant["inStock"]:
             raise HTTPException(status_code=409, detail="Variant is out of stock")
 
-        with self.store.lock:
-            existing = next(
-                (
-                    item
-                    for item in cart["items"]
-                    if item["productId"] == product_id and item["variantId"] == variant_id
-                ),
-                None,
-            )
-            if existing:
-                existing["quantity"] += quantity
-            else:
-                item = {
-                    "itemId": self.store.next_id("item"),
-                    "productId": product["id"],
-                    "variantId": variant["id"],
-                    "name": product["name"],
-                    "price": product["price"],
-                    "quantity": quantity,
-                    "image": product["images"][0] if product.get("images") else "",
-                    "metadata": {"brand": product.get("brand", "")},
-                }
-                cart["items"].append(item)
-            self._recalculate_cart(cart)
-            self.cart_repository.update(cart)
-            return deepcopy(cart)
+        existing = next(
+            (
+                item
+                for item in cart["items"]
+                if item["productId"] == product_id and item["variantId"] == variant_id
+            ),
+            None,
+        )
+        if existing:
+            existing["quantity"] += quantity
+        else:
+            item = {
+                "itemId": generate_id("item"),
+                "productId": product["id"],
+                "variantId": variant["id"],
+                "name": product["name"],
+                "price": product["price"],
+                "quantity": quantity,
+                "image": product["images"][0] if product.get("images") else "",
+                "metadata": {"brand": product.get("brand", "")},
+            }
+            cart["items"].append(item)
+        self._recalculate_cart(cart)
+        self.cart_repository.update(cart)
+        return deepcopy(cart)
 
     def update_item(
         self, user_id: str | None, session_id: str, item_id: str, quantity: int
     ) -> dict[str, Any]:
         cart = self._get_or_create_cart(user_id=user_id, session_id=session_id)
-        with self.store.lock:
-            target = next((item for item in cart["items"] if item["itemId"] == item_id), None)
-            if not target:
-                raise HTTPException(status_code=404, detail="Cart item not found")
-            target["quantity"] = quantity
-            self._recalculate_cart(cart)
-            self.cart_repository.update(cart)
-            return deepcopy(cart)
+        target = next((item for item in cart["items"] if item["itemId"] == item_id), None)
+        if not target:
+            raise HTTPException(status_code=404, detail="Cart item not found")
+        target["quantity"] = quantity
+        self._recalculate_cart(cart)
+        self.cart_repository.update(cart)
+        return deepcopy(cart)
 
     def remove_item(self, user_id: str | None, session_id: str, item_id: str) -> None:
         cart = self._get_or_create_cart(user_id=user_id, session_id=session_id)
-        with self.store.lock:
-            before = len(cart["items"])
-            cart["items"] = [item for item in cart["items"] if item["itemId"] != item_id]
-            if len(cart["items"]) == before:
-                raise HTTPException(status_code=404, detail="Cart item not found")
-            self._recalculate_cart(cart)
-            self.cart_repository.update(cart)
+        before = len(cart["items"])
+        cart["items"] = [item for item in cart["items"] if item["itemId"] != item_id]
+        if len(cart["items"]) == before:
+            raise HTTPException(status_code=404, detail="Cart item not found")
+        self._recalculate_cart(cart)
+        self.cart_repository.update(cart)
 
     def clear_cart(self, user_id: str | None, session_id: str) -> dict[str, Any]:
         cart = self._get_or_create_cart(user_id=user_id, session_id=session_id)
-        with self.store.lock:
-            cart["items"] = []
-            cart["appliedDiscount"] = None
-            self._recalculate_cart(cart)
-            self.cart_repository.update(cart)
-            return deepcopy(cart)
+        cart["items"] = []
+        cart["appliedDiscount"] = None
+        self._recalculate_cart(cart)
+        self.cart_repository.update(cart)
+        return deepcopy(cart)
 
     def apply_discount(
         self, user_id: str | None, session_id: str, discount_code: str
@@ -108,15 +104,14 @@ class CartService:
         cart = self._get_or_create_cart(user_id=user_id, session_id=session_id)
         normalized = discount_code.strip().upper()
         if normalized == "SAVE20":
-            with self.store.lock:
-                cart["appliedDiscount"] = {
-                    "code": "SAVE20",
-                    "type": "percentage",
-                    "value": 20,
-                }
-                self._recalculate_cart(cart)
-                self.cart_repository.update(cart)
-                return deepcopy(cart)
+            cart["appliedDiscount"] = {
+                "code": "SAVE20",
+                "type": "percentage",
+                "value": 20,
+            }
+            self._recalculate_cart(cart)
+            self.cart_repository.update(cart)
+            return deepcopy(cart)
         raise HTTPException(status_code=400, detail="Invalid discount code")
 
     def attach_cart_to_user(self, session_id: str, user_id: str) -> None:
@@ -157,7 +152,7 @@ class CartService:
                 continue
             user_cart["items"].append(
                 {
-                    "itemId": self.store.next_id("item"),
+                    "itemId": generate_id("item"),
                     "productId": key[0],
                     "variantId": key[1],
                     "name": str(source.get("name", "item")),
@@ -193,7 +188,7 @@ class CartService:
         if not cart:
             return None
         cart["status"] = "converted"
-        cart["updatedAt"] = self.store.iso_now()
+        cart["updatedAt"] = iso_now()
         cart["expiresAt"] = self._next_cart_expiry()
         self.cart_repository.update(cart)
         return deepcopy(cart)
@@ -203,7 +198,7 @@ class CartService:
         if existing:
             if self._is_cart_expired(existing):
                 existing["status"] = "abandoned"
-                existing["updatedAt"] = self.store.iso_now()
+                existing["updatedAt"] = iso_now()
                 self.cart_repository.update(existing)
             else:
                 existing["status"] = "active"
@@ -211,28 +206,27 @@ class CartService:
                 self.cart_repository.update(existing)
                 return existing
 
-        with self.store.lock:
-            cart_id = self.store.next_id("cart")
-            now = self.store.iso_now()
-            cart = {
-                "id": cart_id,
-                "userId": user_id,
-                "sessionId": session_id,
-                "anonymousId": self._resolve_anonymous_id(session_id=session_id),
-                "items": [],
-                "subtotal": 0.0,
-                "tax": 0.0,
-                "shipping": 0.0,
-                "discount": 0.0,
-                "total": 0.0,
-                "itemCount": 0,
-                "currency": "USD",
-                "appliedDiscount": None,
-                "status": "active",
-                "createdAt": now,
-                "updatedAt": now,
-                "expiresAt": self._next_cart_expiry(),
-            }
+        cart_id = generate_id("cart")
+        now = iso_now()
+        cart = {
+            "id": cart_id,
+            "userId": user_id,
+            "sessionId": session_id,
+            "anonymousId": self._resolve_anonymous_id(session_id=session_id),
+            "items": [],
+            "subtotal": 0.0,
+            "tax": 0.0,
+            "shipping": 0.0,
+            "discount": 0.0,
+            "total": 0.0,
+            "itemCount": 0,
+            "currency": "USD",
+            "appliedDiscount": None,
+            "status": "active",
+            "createdAt": now,
+            "updatedAt": now,
+            "expiresAt": self._next_cart_expiry(),
+        }
         return self.cart_repository.create(cart)
 
     def _resolve_product_variant(
@@ -247,15 +241,14 @@ class CartService:
         return product, variant
 
     def _resolve_anonymous_id(self, *, session_id: str) -> str | None:
-        with self.store.lock:
-            session = self.store.sessions_by_id.get(session_id)
-            if not isinstance(session, dict):
-                return None
-            value = str(session.get("anonymousId", "")).strip()
-            return value or None
+        session = self.session_repository.get(session_id)
+        if not isinstance(session, dict):
+            return None
+        value = str(session.get("anonymousId", "")).strip()
+        return value or None
 
     def _next_cart_expiry(self) -> str:
-        return (self.store.utc_now() + timedelta(hours=self._cart_ttl_hours)).isoformat()
+        return (utc_now() + timedelta(hours=self._cart_ttl_hours)).isoformat()
 
     def _is_cart_expired(self, cart: dict[str, Any]) -> bool:
         expires_at = str(cart.get("expiresAt", "")).strip()
@@ -267,7 +260,7 @@ class CartService:
             return False
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed <= self.store.utc_now()
+        return parsed <= utc_now()
 
     def _recalculate_cart(self, cart: dict[str, Any]) -> None:
         subtotal = sum(item["price"] * item["quantity"] for item in cart["items"])
@@ -290,4 +283,4 @@ class CartService:
         if str(cart.get("status", "active")).strip().lower() != "converted":
             cart["status"] = "active"
         cart["expiresAt"] = self._next_cart_expiry()
-        cart["updatedAt"] = self.store.iso_now()
+        cart["updatedAt"] = iso_now()

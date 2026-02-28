@@ -11,20 +11,18 @@ from app.services.cart_service import CartService
 from app.services.inventory_service import InventoryService
 from app.services.notification_service import NotificationService
 from app.services.payment_service import PaymentService
-from app.store.in_memory import InMemoryStore
+from app.core.utils import generate_id, iso_now, utc_now
 
 
 class OrderService:
     def __init__(
         self,
-        store: InMemoryStore,
         cart_service: CartService,
         inventory_service: InventoryService,
         payment_service: PaymentService,
         notification_service: NotificationService,
         order_repository: OrderRepository,
     ) -> None:
-        self.store = store
         self.cart_service = cart_service
         self.inventory_service = inventory_service
         self.payment_service = payment_service
@@ -63,48 +61,47 @@ class OrderService:
             self.inventory_service.rollback_reservation(reservations)
             raise
 
-        with self.store.lock:
-            order_id = self.store.next_id("order")
-            created_at = self.store.iso_now()
-            estimated_delivery = (self.store.utc_now() + timedelta(days=5)).isoformat()
-            order = {
-                "id": order_id,
-                "userId": user_id,
-                "status": "confirmed",
-                "items": deepcopy(cart["items"]),
-                "subtotal": cart["subtotal"],
-                "tax": cart["tax"],
-                "shipping": cart["shipping"],
-                "discount": cart["discount"],
-                "total": cart["total"],
-                "shippingAddress": shipping_address,
-                "payment": {
-                    "method": payment_result.get("method") if payment_result else "unknown",
-                    "transactionId": payment_result.get("transactionId") if payment_result else None,
-                    "status": payment_result.get("status") if payment_result else "failed",
-                },
-                "timeline": [
-                    {"status": "order_placed", "timestamp": created_at},
-                    {"status": "confirmed", "timestamp": created_at},
-                ],
-                "tracking": {
-                    "carrier": None,
-                    "trackingNumber": None,
-                    "status": "pending",
-                    "updates": [],
-                },
-                "estimatedDelivery": estimated_delivery,
-                "createdAt": created_at,
-                "updatedAt": created_at,
-            }
-            self.order_repository.create(order)
-            self.order_repository.set_idempotent(key=key, order_id=order_id)
-            self.cart_service.mark_cart_converted_for_user(user_id)
+        order_id = generate_id("order")
+        created_at = iso_now()
+        estimated_delivery = (utc_now() + timedelta(days=5)).isoformat()
+        order = {
+            "id": order_id,
+            "userId": user_id,
+            "status": "confirmed",
+            "items": deepcopy(cart["items"]),
+            "subtotal": cart["subtotal"],
+            "tax": cart["tax"],
+            "shipping": cart["shipping"],
+            "discount": cart["discount"],
+            "total": cart["total"],
+            "shippingAddress": shipping_address,
+            "payment": {
+                "method": payment_result.get("method") if payment_result else "unknown",
+                "transactionId": payment_result.get("transactionId") if payment_result else None,
+                "status": payment_result.get("status") if payment_result else "failed",
+            },
+            "timeline": [
+                {"status": "order_placed", "timestamp": created_at},
+                {"status": "confirmed", "timestamp": created_at},
+            ],
+            "tracking": {
+                "carrier": None,
+                "trackingNumber": None,
+                "status": "pending",
+                "updates": [],
+            },
+            "estimatedDelivery": estimated_delivery,
+            "createdAt": created_at,
+            "updatedAt": created_at,
+        }
+        self.order_repository.create(order)
+        self.order_repository.set_idempotent(key=key, order_id=order_id)
+        self.cart_service.mark_cart_converted_for_user(user_id)
 
-            self.inventory_service.commit_reservation(order["items"])
-            self.notification_service.send_order_confirmation(user_id=user_id, order=order)
+        self.inventory_service.commit_reservation(order["items"])
+        self.notification_service.send_order_confirmation(user_id=user_id, order=order)
 
-            return deepcopy(order)
+        return deepcopy(order)
 
     def list_orders(self, user_id: str) -> dict[str, Any]:
         orders = self.order_repository.list_by_user(user_id)
@@ -136,7 +133,7 @@ class OrderService:
             raise HTTPException(status_code=409, detail="Order can no longer be cancelled")
 
         order["status"] = "cancelled"
-        order["updatedAt"] = self.store.iso_now()
+        order["updatedAt"] = iso_now()
         order["timeline"].append(
             {
                 "status": "cancelled",
@@ -155,7 +152,7 @@ class OrderService:
             raise HTTPException(status_code=409, detail="Order cannot be refunded in current state")
 
         order["status"] = "refunded"
-        order["updatedAt"] = self.store.iso_now()
+        order["updatedAt"] = iso_now()
         payment = order.setdefault("payment", {})
         payment["status"] = "refunded"
         order.setdefault("timeline", []).append(
@@ -185,7 +182,7 @@ class OrderService:
             )
 
         order["shippingAddress"] = deepcopy(shipping_address)
-        order["updatedAt"] = self.store.iso_now()
+        order["updatedAt"] = iso_now()
         order.setdefault("timeline", []).append(
             {
                 "status": "address_updated",

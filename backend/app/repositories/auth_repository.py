@@ -5,114 +5,67 @@ from copy import deepcopy
 from typing import Any
 
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
-from app.store.in_memory import InMemoryStore
 
 
 class AuthRepository:
     def __init__(
         self,
         *,
-        store: InMemoryStore,
         mongo_manager: MongoClientManager,
         redis_manager: RedisClientManager,
     ) -> None:
-        self.store = store
         self.mongo_manager = mongo_manager
         self.redis_manager = redis_manager
 
     def create_user(self, user: dict[str, Any]) -> dict[str, Any]:
-        with self.store.lock:
-            self.store.users_by_id[user["id"]] = deepcopy(user)
-            self.store.user_ids_by_email[str(user["email"]).strip().lower()] = user["id"]
         self._write_user_through(user)
         return deepcopy(user)
 
     def update_user(self, user: dict[str, Any]) -> dict[str, Any]:
-        with self.store.lock:
-            self.store.users_by_id[user["id"]] = deepcopy(user)
-            self.store.user_ids_by_email[str(user["email"]).strip().lower()] = user["id"]
         self._write_user_through(user)
         return deepcopy(user)
 
     def get_user_by_id(self, user_id: str) -> dict[str, Any] | None:
-        with self.store.lock:
-            user = self.store.users_by_id.get(user_id)
-            if user is not None:
-                return deepcopy(user)
-
         cached = self._read_user_from_redis_by_id(user_id)
         if cached is not None:
-            self._cache_user_in_store(cached)
             return deepcopy(cached)
 
         persisted = self._read_user_from_mongo_by_id(user_id)
         if persisted is not None:
-            self._cache_user_in_store(persisted)
             self._write_user_to_redis(persisted)
             return deepcopy(persisted)
         return None
 
     def get_user_by_email(self, email: str) -> dict[str, Any] | None:
         normalized = email.strip().lower()
-        with self.store.lock:
-            user_id = self.store.user_ids_by_email.get(normalized)
-            if user_id:
-                user = self.store.users_by_id.get(user_id)
-                if user is not None:
-                    return deepcopy(user)
-
         cached = self._read_user_from_redis_by_email(normalized)
         if cached is not None:
-            self._cache_user_in_store(cached)
             return deepcopy(cached)
 
         persisted = self._read_user_from_mongo_by_email(normalized)
         if persisted is not None:
-            self._cache_user_in_store(persisted)
             self._write_user_to_redis(persisted)
             return deepcopy(persisted)
         return None
 
     def set_refresh_token(self, token: str, payload: dict[str, Any]) -> None:
-        with self.store.lock:
-            self.store.refresh_tokens[token] = deepcopy(payload)
         self._write_refresh_to_redis(token, payload)
         self._write_refresh_to_mongo(token, payload)
 
     def get_refresh_token(self, token: str) -> dict[str, Any] | None:
-        with self.store.lock:
-            payload = self.store.refresh_tokens.get(token)
-            if payload is not None:
-                return deepcopy(payload)
-
         cached = self._read_refresh_from_redis(token)
         if cached is not None:
-            with self.store.lock:
-                self.store.refresh_tokens[token] = deepcopy(cached)
             return deepcopy(cached)
 
         persisted = self._read_refresh_from_mongo(token)
         if persisted is not None:
-            with self.store.lock:
-                self.store.refresh_tokens[token] = deepcopy(persisted)
             self._write_refresh_to_redis(token, persisted)
             return deepcopy(persisted)
         return None
 
     def revoke_refresh_token(self, token: str) -> None:
-        with self.store.lock:
-            self.store.refresh_tokens.pop(token, None)
         self._delete_refresh_from_redis(token)
         self._delete_refresh_from_mongo(token)
-
-    def _cache_user_in_store(self, user: dict[str, Any]) -> None:
-        user_id = str(user.get("id", ""))
-        email = str(user.get("email", "")).strip().lower()
-        if not user_id or not email:
-            return
-        with self.store.lock:
-            self.store.users_by_id[user_id] = deepcopy(user)
-            self.store.user_ids_by_email[email] = user_id
 
     def _write_user_through(self, user: dict[str, Any]) -> None:
         self._write_user_to_redis(user)

@@ -10,17 +10,15 @@ from fastapi import HTTPException
 from app.core.config import Settings
 from app.core.security import create_token, decode_token, hash_password, verify_password
 from app.repositories.auth_repository import AuthRepository
-from app.store.in_memory import InMemoryStore
+from app.core.utils import generate_id, iso_now
 
 
 class AuthService:
     def __init__(
         self,
-        store: InMemoryStore,
         settings: Settings,
         auth_repository: AuthRepository,
     ) -> None:
-        self.store = store
         self.settings = settings
         self.auth_repository = auth_repository
         self.logger = get_logger(__name__)
@@ -34,54 +32,52 @@ class AuthService:
         timezone: str | None = None,
     ) -> dict[str, Any]:
         normalized_email = email.strip().lower()
-        with self.store.lock:
-            if self.auth_repository.get_user_by_email(normalized_email):
-                raise HTTPException(status_code=409, detail="Email already registered")
+        if self.auth_repository.get_user_by_email(normalized_email):
+            raise HTTPException(status_code=409, detail="Email already registered")
 
-            user_id = self.store.next_id("user")
-            now = datetime.now(dt_timezone.utc).isoformat()
-            user = {
-                "id": user_id,
-                "email": normalized_email,
-                "name": name.strip(),
-                "passwordHash": hash_password(password),
-                "role": "customer",
-                "status": "active",
-                "identity": {"anonymousId": None, "linkedChannels": []},
-                "createdAt": now,
-                "updatedAt": now,
-                "lastLoginAt": now,
-                "phone": phone.strip() if isinstance(phone, str) and phone.strip() else None,
-                "timezone": timezone.strip() if isinstance(timezone, str) and timezone.strip() else None,
-            }
-            self.auth_repository.create_user(user)
-            return self._issue_tokens(user)
+        user_id = generate_id("user")
+        now = iso_now()
+        user = {
+            "id": user_id,
+            "email": normalized_email,
+            "name": name.strip(),
+            "passwordHash": hash_password(password),
+            "role": "customer",
+            "status": "active",
+            "identity": {"anonymousId": None, "linkedChannels": []},
+            "createdAt": now,
+            "updatedAt": now,
+            "lastLoginAt": now,
+            "phone": phone.strip() if isinstance(phone, str) and phone.strip() else None,
+            "timezone": timezone.strip() if isinstance(timezone, str) and timezone.strip() else None,
+        }
+        self.auth_repository.create_user(user)
+        return self._issue_tokens(user)
 
     def login(self, email: str, password: str, otp: str | None = None) -> dict[str, Any]:
         normalized_email = email.strip().lower()
-        with self.store.lock:
-            user = self.auth_repository.get_user_by_email(normalized_email)
-            if not user:
-                raise HTTPException(status_code=401, detail="Invalid credentials")
+        user = self.auth_repository.get_user_by_email(normalized_email)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
 
-            if not verify_password(password, user["passwordHash"]):
-                raise HTTPException(status_code=401, detail="Invalid credentials")
+        if not verify_password(password, user["passwordHash"]):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
 
-            if str(user.get("role", "")).lower() == "admin" and self.settings.admin_mfa_required:
-                try:
-                    import pyotp
-                    supplied = str(otp or "").strip()
-                    totp = pyotp.TOTP(self.settings.admin_mfa_totp_secret)
-                    if not supplied or not totp.verify(supplied):
-                        raise HTTPException(status_code=401, detail="Invalid Admin OTP")
-                except ImportError:
-                    # Fallback if pyotp is not installed yet
-                    if str(otp or "").strip() != "000000": # Temporary fallback for dev
-                         raise HTTPException(status_code=401, detail="Admin OTP required (pyotp missing)")
+        if str(user.get("role", "")).lower() == "admin" and self.settings.admin_mfa_required:
+            try:
+                import pyotp
+                supplied = str(otp or "").strip()
+                totp = pyotp.TOTP(self.settings.admin_mfa_totp_secret)
+                if not supplied or not totp.verify(supplied):
+                    raise HTTPException(status_code=401, detail="Invalid Admin OTP")
+            except ImportError:
+                # Fallback if pyotp is not installed yet
+                if str(otp or "").strip() != "000000": # Temporary fallback for dev
+                     raise HTTPException(status_code=401, detail="Admin OTP required (pyotp missing)")
 
-            user["lastLoginAt"] = datetime.now(dt_timezone.utc).isoformat()
-            self.auth_repository.update_user(user)
-            return self._issue_tokens(user)
+        user["lastLoginAt"] = iso_now()
+        self.auth_repository.update_user(user)
+        return self._issue_tokens(user)
 
     def refresh(self, refresh_token: str) -> dict[str, Any]:
         try:
@@ -93,19 +89,18 @@ class AuthService:
         except ValueError as exc:
             raise HTTPException(status_code=401, detail="Invalid refresh token") from exc
 
-        with self.store.lock:
-            token_record = self.auth_repository.get_refresh_token(refresh_token)
-            if not token_record:
-                raise HTTPException(status_code=401, detail="Refresh token revoked")
+        token_record = self.auth_repository.get_refresh_token(refresh_token)
+        if not token_record:
+            raise HTTPException(status_code=401, detail="Refresh token revoked")
 
-            user_id = payload.get("sub")
-            user = self.auth_repository.get_user_by_id(str(user_id))
-            if not user:
-                raise HTTPException(status_code=401, detail="User not found")
+        user_id = payload.get("sub")
+        user = self.auth_repository.get_user_by_id(str(user_id))
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
 
-            # Rotation: revoke old refresh token and issue a new pair.
-            self.auth_repository.revoke_refresh_token(refresh_token)
-            return self._issue_tokens(user)
+        # Rotation: revoke old refresh token and issue a new pair.
+        self.auth_repository.revoke_refresh_token(refresh_token)
+        return self._issue_tokens(user)
 
     def get_user_from_access_token(self, access_token: str) -> dict[str, Any]:
         try:
@@ -131,39 +126,38 @@ class AuthService:
         external_id: str,
         anonymous_id: str | None = None,
     ) -> dict[str, Any]:
-        with self.store.lock:
-            user = self.auth_repository.get_user_by_id(user_id)
-            if user is None:
-                raise HTTPException(status_code=404, detail="User not found")
+        user = self.auth_repository.get_user_by_id(user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
 
-            identity = user.get("identity", {})
-            if not isinstance(identity, dict):
-                identity = {}
-            linked_channels = identity.get("linkedChannels")
-            if not isinstance(linked_channels, list):
-                linked_channels = []
+        identity = user.get("identity", {})
+        if not isinstance(identity, dict):
+            identity = {}
+        linked_channels = identity.get("linkedChannels")
+        if not isinstance(linked_channels, list):
+            linked_channels = []
 
-            provider = channel.strip().lower() if channel else "web"
-            ext_id = external_id.strip()
-            if ext_id:
-                already = any(
-                    isinstance(item, dict)
-                    and str(item.get("provider", "")).strip().lower() == provider
-                    and str(item.get("externalId", "")).strip() == ext_id
-                    for item in linked_channels
-                )
-                if not already:
-                    linked_channels.append({"provider": provider, "externalId": ext_id})
+        provider = channel.strip().lower() if channel else "web"
+        ext_id = external_id.strip()
+        if ext_id:
+            already = any(
+                isinstance(item, dict)
+                and str(item.get("provider", "")).strip().lower() == provider
+                and str(item.get("externalId", "")).strip() == ext_id
+                for item in linked_channels
+            )
+            if not already:
+                linked_channels.append({"provider": provider, "externalId": ext_id})
 
-            if anonymous_id and str(anonymous_id).strip():
-                identity["anonymousId"] = str(anonymous_id).strip()
-            elif identity.get("anonymousId") is None:
-                identity["anonymousId"] = None
-            identity["linkedChannels"] = linked_channels
-            user["identity"] = identity
-            user["updatedAt"] = datetime.now(dt_timezone.utc).isoformat()
-            self.auth_repository.update_user(user)
-            return user
+        if anonymous_id and str(anonymous_id).strip():
+            identity["anonymousId"] = str(anonymous_id).strip()
+        elif identity.get("anonymousId") is None:
+            identity["anonymousId"] = None
+        identity["linkedChannels"] = linked_channels
+        user["identity"] = identity
+        user["updatedAt"] = iso_now()
+        self.auth_repository.update_user(user)
+        return user
 
     def _issue_tokens(self, user: dict[str, Any]) -> dict[str, Any]:
         access_token = create_token(
@@ -184,7 +178,7 @@ class AuthService:
             refresh_token,
             {
                 "userId": user["id"],
-                "createdAt": datetime.now(dt_timezone.utc).isoformat(),
+                "createdAt": iso_now(),
             },
         )
 

@@ -6,13 +6,12 @@ from app.repositories.product_repository import ProductRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.support_repository import SupportRepository
 from app.services.voice_recovery_service import VoiceRecoveryService
-from app.store.in_memory import InMemoryStore
+from app.core.utils import utc_now
 
 
 class AdminService:
     def __init__(
         self,
-        store: InMemoryStore,
         session_repository: SessionRepository,
         order_repository: OrderRepository,
         interaction_repository: InteractionRepository,
@@ -20,7 +19,6 @@ class AdminService:
         product_repository: ProductRepository,
         voice_recovery_service: VoiceRecoveryService,
     ) -> None:
-        self.store = store
         self.session_repository = session_repository
         self.order_repository = order_repository
         self.interaction_repository = interaction_repository
@@ -29,7 +27,7 @@ class AdminService:
         self.voice_recovery_service = voice_recovery_service
 
     def stats(self) -> dict[str, object]:
-        today = self.store.utc_now().date().isoformat()
+        today = utc_now().date().isoformat()
         active_sessions = self.session_repository.count()
         orders = self.order_repository.list_all()
         orders_today_rows = [order for order in orders if str(order.get("createdAt", "")).startswith(today)]

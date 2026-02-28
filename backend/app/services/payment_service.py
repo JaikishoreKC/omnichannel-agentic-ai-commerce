@@ -4,12 +4,12 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.store.in_memory import InMemoryStore
+from app.core.utils import generate_id
 
 
 class PaymentService:
-    def __init__(self, store: InMemoryStore) -> None:
-        self.store = store
+    def __init__(self) -> None:
+        pass
 
     def authorize(self, *, amount: float, payment_method: dict[str, Any]) -> dict[str, Any]:
         payment_type = str(payment_method.get("type", ""))
@@ -19,7 +19,7 @@ class PaymentService:
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Invalid payment amount")
 
-        transaction_id = f"txn_{self.store.next_id('payment')}"
+        transaction_id = generate_id("payment")
         return {
             "status": "authorized",
             "transactionId": transaction_id,

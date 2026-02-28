@@ -95,7 +95,8 @@ class InMemoryStore:
                 "brand": "StrideForge",
                 "price": 129.99,
                 "currency": "USD",
-                "images": ["https://cdn.example.com/products/prod_001/main.jpg"],
+                "images": ["https://placehold.co/600x800?text=Running+Shoe"],
+
                 "variants": [
                     {"id": "var_001", "size": "10", "color": "blue", "inStock": True},
                     {"id": "var_002", "size": "10", "color": "black", "inStock": True},
@@ -116,7 +117,8 @@ class InMemoryStore:
                 "brand": "PeakRoute",
                 "price": 149.99,
                 "currency": "USD",
-                "images": ["https://cdn.example.com/products/prod_002/main.jpg"],
+                "images": ["https://placehold.co/600x800?text=Classic+T-Shirt"],
+
                 "variants": [
                     {"id": "var_003", "size": "9", "color": "green", "inStock": True},
                     {"id": "var_004", "size": "10", "color": "gray", "inStock": False},
@@ -137,7 +139,8 @@ class InMemoryStore:
                 "brand": "AeroThread",
                 "price": 79.99,
                 "currency": "USD",
-                "images": ["https://cdn.example.com/products/prod_003/main.jpg"],
+                "images": ["https://placehold.co/600x800?text=Denim+Jacket"],
+
                 "variants": [
                     {"id": "var_005", "size": "M", "color": "navy", "inStock": True},
                     {"id": "var_006", "size": "L", "color": "black", "inStock": True},
@@ -158,7 +161,8 @@ class InMemoryStore:
                 "brand": "AeroThread",
                 "price": 64.5,
                 "currency": "USD",
-                "images": ["https://cdn.example.com/products/prod_004/main.jpg"],
+                "images": ["https://placehold.co/600x800?text=Yoga+Mat"],
+
                 "variants": [
                     {"id": "var_007", "size": "M", "color": "charcoal", "inStock": True},
                     {"id": "var_008", "size": "L", "color": "charcoal", "inStock": True},
@@ -179,7 +183,8 @@ class InMemoryStore:
                 "brand": "StrideForge",
                 "price": 24.99,
                 "currency": "USD",
-                "images": ["https://cdn.example.com/products/prod_005/main.jpg"],
+                "images": ["https://placehold.co/600x800?text=Coffee+Maker"],
+
                 "variants": [
                     {"id": "var_009", "size": "M", "color": "white", "inStock": True},
                     {"id": "var_010", "size": "L", "color": "white", "inStock": True},
@@ -200,7 +205,8 @@ class InMemoryStore:
                 "brand": "CarryWorks",
                 "price": 89.0,
                 "currency": "USD",
-                "images": ["https://cdn.example.com/products/prod_006/main.jpg"],
+                "images": ["https://placehold.co/600x800?text=Wireless+Earbuds"],
+
                 "variants": [
                     {"id": "var_011", "size": "one-size", "color": "black", "inStock": True}
                 ],

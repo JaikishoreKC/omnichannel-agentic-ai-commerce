@@ -5,58 +5,32 @@ from copy import deepcopy
 from typing import Any
 
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
-from app.store.in_memory import InMemoryStore
-
-
 class CartRepository:
     def __init__(
         self,
         *,
-        store: InMemoryStore,
         mongo_manager: MongoClientManager,
         redis_manager: RedisClientManager,
     ) -> None:
-        self.store = store
         self.mongo_manager = mongo_manager
         self.redis_manager = redis_manager
 
     def create(self, cart: dict[str, Any]) -> dict[str, Any]:
-        with self.store.lock:
-            self.store.carts_by_id[cart["id"]] = deepcopy(cart)
         self._write_through(cart)
         return deepcopy(cart)
 
     def update(self, cart: dict[str, Any]) -> dict[str, Any]:
-        with self.store.lock:
-            self.store.carts_by_id[cart["id"]] = deepcopy(cart)
         self._write_through(cart)
         return deepcopy(cart)
 
     def delete(self, cart_id: str) -> None:
-        with self.store.lock:
-            self.store.carts_by_id.pop(cart_id, None)
         self._delete_from_redis(cart_id)
         self._delete_from_mongo(cart_id)
 
     def get_for_user_or_session(self, *, user_id: str | None, session_id: str) -> dict[str, Any] | None:
-        with self.store.lock:
-            candidates: list[dict[str, Any]] = []
-            for cart in self.store.carts_by_id.values():
-                status = str(cart.get("status", "active")).strip().lower()
-                if status != "active":
-                    continue
-                if user_id and cart.get("userId") == user_id:
-                    candidates.append(deepcopy(cart))
-                if not user_id and cart.get("sessionId") == session_id and not cart.get("userId"):
-                    candidates.append(deepcopy(cart))
-            if candidates:
-                candidates.sort(key=lambda row: str(row.get("updatedAt", "")), reverse=True)
-                return deepcopy(candidates[0])
-
+        # Check Mongo as source of truth
         persisted = self._read_from_mongo(user_id=user_id, session_id=session_id)
         if persisted is not None:
-            with self.store.lock:
-                self.store.carts_by_id[persisted["id"]] = deepcopy(persisted)
             self._write_to_redis(persisted)
             return deepcopy(persisted)
         return None
@@ -68,8 +42,7 @@ class CartRepository:
         cart["items"] = []
         cart["appliedDiscount"] = None
         cart["status"] = "active"
-        with self.store.lock:
-            self.store.carts_by_id[cart["id"]] = deepcopy(cart)
+        cart["updatedAt"] = "2024-01-01T00:00:00Z" # Will be updated by service usually
         self._write_through(cart)
         return deepcopy(cart)
 

@@ -4,16 +4,14 @@ from copy import deepcopy
 from typing import Any
 
 from app.repositories.interaction_repository import InteractionRepository
-from app.store.in_memory import InMemoryStore
+from app.core.utils import generate_id, iso_now
 
 
 class InteractionService:
     def __init__(
         self,
-        store: InMemoryStore,
         interaction_repository: InteractionRepository,
     ) -> None:
-        self.store = store
         self.interaction_repository = interaction_repository
 
     def record(
@@ -27,14 +25,14 @@ class InteractionService:
         response: dict[str, Any],
     ) -> dict[str, Any]:
         payload = {
-            "id": f"msg_{self.store.next_id('item')}",
+            "id": generate_id("msg"),
             "sessionId": session_id,
             "userId": user_id,
             "message": message,
             "intent": intent,
             "agent": agent,
             "response": response,
-            "timestamp": self.store.iso_now(),
+            "timestamp": iso_now(),
         }
         self.interaction_repository.create(payload)
         return deepcopy(payload)

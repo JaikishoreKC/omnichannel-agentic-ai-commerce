@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { ShoppingCart, Eye, Star } from "lucide-react";
+import { ShoppingCart, Eye, Star, Plus, Minus } from "lucide-react";
 import type { Product } from "../../types";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
@@ -11,16 +11,23 @@ interface ProductCardProps {
 }
 
 const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
-    const { addItem } = useCart();
+    const { addItem, updateItemQuantity, removeItem, cart } = useCart();
     const [isAdding, setIsAdding] = React.useState(false);
+
+    const defaultVariant = product.variants.find(v => v.inStock) || product.variants[0];
+    const cartItem = cart?.items.find((item: any) => item.productId === product.id && item.variantId === defaultVariant.id);
+    const quantity = cartItem?.quantity || 0;
 
     const handleAddToCart = async (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
         setIsAdding(true);
         try {
-            const defaultVariant = product.variants.find(v => v.inStock) || product.variants[0];
-            await addItem(product.id, defaultVariant.id, 1);
+            if (quantity > 0) {
+                await updateItemQuantity(cartItem!.itemId, quantity + 1);
+            } else {
+                await addItem(product.id, defaultVariant.id, 1);
+            }
         } finally {
             setIsAdding(false);
         }
@@ -45,16 +52,55 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
                     </div>
 
                     <div className="absolute inset-0 bg-ink/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
-                        <Button
-                            variant="primary"
-                            size="icon"
-                            className="rounded-full shadow-lg"
-                            onClick={handleAddToCart}
-                            isLoading={isAdding}
-                            data-testid={`add-to-cart-${product.id}`}
-                        >
-                            <ShoppingCart size={18} />
-                        </Button>
+                        {quantity > 0 ? (
+                            <div className="flex items-center gap-2 bg-white rounded-full shadow-lg p-1" onClick={(e) => e.preventDefault()}>
+                                <Button
+                                    variant="secondary"
+                                    size="icon"
+                                    className="w-8 h-8 rounded-full bg-surface-50 hover:bg-surface-100"
+                                    onClick={async (e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setIsAdding(true);
+                                        try {
+                                            if (quantity === 1) {
+                                                await removeItem(cartItem!.itemId);
+                                            } else {
+                                                await updateItemQuantity(cartItem!.itemId, quantity - 1);
+                                            }
+                                        } finally {
+                                            setIsAdding(false);
+                                        }
+                                    }}
+                                    disabled={isAdding}
+                                    data-testid={`decrease-qty-${product.id}`}
+                                >
+                                    <Minus size={14} />
+                                </Button>
+                                <span className="w-8 text-center font-bold text-sm text-ink">{quantity}</span>
+                                <Button
+                                    variant="secondary"
+                                    size="icon"
+                                    className="w-8 h-8 rounded-full bg-surface-50 hover:bg-surface-100"
+                                    onClick={handleAddToCart}
+                                    disabled={isAdding}
+                                    data-testid={`increase-qty-${product.id}`}
+                                >
+                                    <Plus size={14} />
+                                </Button>
+                            </div>
+                        ) : (
+                            <Button
+                                variant="primary"
+                                size="icon"
+                                className="rounded-full shadow-lg"
+                                onClick={handleAddToCart}
+                                isLoading={isAdding}
+                                data-testid={`add-to-cart-${product.id}`}
+                            >
+                                <ShoppingCart size={18} />
+                            </Button>
+                        )}
                         <Button variant="secondary" size="icon" className="rounded-full shadow-lg">
                             <Eye size={18} />
                         </Button>

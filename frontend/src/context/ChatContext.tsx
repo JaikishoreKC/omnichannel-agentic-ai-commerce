@@ -23,7 +23,7 @@ interface ChatContextType {
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { sessionId } = useSession();
+    const { sessionId, isLoading: isSessionLoading } = useSession();
     const [messages, setMessages] = useState<Message[]>([]);
     const [isTyping, setIsTyping] = useState(false);
     const [isConnected, setIsConnected] = useState(false);
@@ -47,7 +47,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [sessionId]);
 
     useEffect(() => {
-        if (!sessionId) return;
+        if (!sessionId || isSessionLoading) return;
 
         loadHistory();
 
@@ -105,7 +105,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const sendMessage = (text: string) => {
         if (socketRef.current && isConnected) {
-            socketRef.current.send(JSON.stringify({ type: "message", payload: { text } }));
+            socketRef.current.send(JSON.stringify({ type: "message", payload: { content: text } }));
             setMessages((prev) => [
                 ...prev,
                 {

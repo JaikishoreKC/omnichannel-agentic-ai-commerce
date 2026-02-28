@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { fetchCart as apiFetchCart, addToCart as apiAddToCart } from "../api";
+import { fetchCart as apiFetchCart, addToCart as apiAddToCart, updateCartItem as apiUpdateCartItem, removeFromCart as apiRemoveFromCart } from "../api";
 import { useSession } from "./SessionContext";
 import { useAuth } from "./AuthContext";
 import type { Cart, CartItem } from "../types";
@@ -8,7 +8,10 @@ interface CartContextType {
     cart: Cart | null;
     isLoading: boolean;
     addItem: (productId: string, variantId: string, quantity: number) => Promise<void>;
+    updateItemQuantity: (itemId: string, quantity: number) => Promise<void>;
+    removeItem: (itemId: string) => Promise<void>;
     refreshCart: () => Promise<void>;
+
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -41,8 +44,22 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await refreshCart();
     };
 
+    const updateItemQuantity = async (itemId: string, quantity: number) => {
+        if (quantity < 1) {
+            await apiRemoveFromCart(itemId);
+        } else {
+            await apiUpdateCartItem(itemId, quantity);
+        }
+        await refreshCart();
+    };
+
+    const removeItem = async (itemId: string) => {
+        await apiRemoveFromCart(itemId);
+        await refreshCart();
+    };
+
     return (
-        <CartContext.Provider value={{ cart, isLoading, addItem, refreshCart }}>
+        <CartContext.Provider value={{ cart, isLoading, addItem, updateItemQuantity, removeItem, refreshCart }}>
             {children}
         </CartContext.Provider>
     );

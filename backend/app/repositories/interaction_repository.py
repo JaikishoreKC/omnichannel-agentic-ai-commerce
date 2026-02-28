@@ -5,18 +5,13 @@ from copy import deepcopy
 from typing import Any
 
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
-from app.store.in_memory import InMemoryStore
-
-
 class InteractionRepository:
     def __init__(
         self,
         *,
-        store: InMemoryStore,
         mongo_manager: MongoClientManager,
         redis_manager: RedisClientManager,
     ) -> None:
-        self.store = store
         self.mongo_manager = mongo_manager
         self.redis_manager = redis_manager
 
@@ -25,29 +20,18 @@ class InteractionRepository:
         if not session_id:
             raise ValueError("Interaction payload requires sessionId")
 
-        with self.store.lock:
-            self.store.messages_by_session.setdefault(session_id, []).append(deepcopy(payload))
         self._append_to_redis(session_id, payload)
         self._write_to_mongo(payload)
         return deepcopy(payload)
 
     def recent(self, *, session_id: str, limit: int = 12) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 200))
-        with self.store.lock:
-            items = self.store.messages_by_session.get(session_id, [])
-            if items:
-                return deepcopy(items[-safe_limit:])
-
         cached = self._read_session_from_redis(session_id)
         if cached:
-            with self.store.lock:
-                self.store.messages_by_session[session_id] = deepcopy(cached)
             return deepcopy(cached[-safe_limit:])
 
         persisted = self._read_session_from_mongo(session_id)
         if persisted:
-            with self.store.lock:
-                self.store.messages_by_session[session_id] = deepcopy(persisted)
             self._write_session_to_redis(session_id, persisted)
             return deepcopy(persisted[-safe_limit:])
         return []
@@ -57,47 +41,14 @@ class InteractionRepository:
 
     def list_for_user(self, *, user_id: str, limit: int = 100) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 500))
-        with self.store.lock:
-            cached = [
-                deepcopy(record)
-                for rows in self.store.messages_by_session.values()
-                for record in rows
-                if str(record.get("userId", "")) == user_id
-            ]
-        if cached:
-            cached.sort(key=lambda item: str(item.get("timestamp", "")))
-            return deepcopy(cached[-safe_limit:])
-
         persisted = self._read_user_from_mongo(user_id)
         if persisted:
-            with self.store.lock:
-                for row in persisted:
-                    session_id = str(row.get("sessionId", "")).strip()
-                    if not session_id:
-                        continue
-                    self.store.messages_by_session.setdefault(session_id, []).append(deepcopy(row))
             return deepcopy(persisted[-safe_limit:])
         return []
 
     def list_by_date(self, *, date_prefix: str) -> list[dict[str, Any]]:
-        with self.store.lock:
-            cached = [
-                deepcopy(record)
-                for rows in self.store.messages_by_session.values()
-                for record in rows
-                if str(record.get("timestamp", "")).startswith(date_prefix)
-            ]
-        if cached:
-            return cached
-
         persisted = self._read_by_date_from_mongo(date_prefix)
         if persisted:
-            with self.store.lock:
-                for row in persisted:
-                    session_id = str(row.get("sessionId", ""))
-                    if not session_id:
-                        continue
-                    self.store.messages_by_session.setdefault(session_id, []).append(deepcopy(row))
             return deepcopy(persisted)
         return []
 
