@@ -9,7 +9,7 @@ import { checkout } from "../api";
 import { cn } from "../utils/cn";
 
 const CartPage: React.FC = () => {
-    const { cart, refreshCart, isLoading: isCartLoading } = useCart();
+    const { cart, refreshCart, updateItemQuantity, removeItem, isLoading: isCartLoading } = useCart();
     const { isAuthenticated } = useAuth();
     const navigate = useNavigate();
     const [isCheckingOut, setIsCheckingOut] = useState(false);
@@ -95,12 +95,25 @@ const CartPage: React.FC = () => {
                             </div>
 
                             <div className="flex items-center gap-4 bg-surface-50 rounded-xl border border-line p-1">
-                                <button className="p-2 hover:text-brand transition-colors"><Minus size={16} /></button>
+                                <button
+                                    className="p-2 hover:text-brand transition-colors"
+                                    onClick={() => updateItemQuantity(item.itemId, item.quantity - 1)}
+                                >
+                                    <Minus size={16} />
+                                </button>
                                 <span className="w-8 text-center font-bold">{item.quantity}</span>
-                                <button className="p-2 hover:text-brand transition-colors"><Plus size={16} /></button>
+                                <button
+                                    className="p-2 hover:text-brand transition-colors"
+                                    onClick={() => updateItemQuantity(item.itemId, item.quantity + 1)}
+                                >
+                                    <Plus size={16} />
+                                </button>
                             </div>
 
-                            <button className="p-2 text-slate-300 hover:text-red-500 transition-colors">
+                            <button
+                                className="p-2 text-slate-300 hover:text-red-500 transition-colors"
+                                onClick={() => removeItem(item.itemId)}
+                            >
                                 <Trash2 size={20} />
                             </button>
                         </div>

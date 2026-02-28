@@ -1,4 +1,5 @@
 import { request } from "./client";
+import type { Order } from "../types";
 
 export async function checkout(input: {
     shippingAddress: {
@@ -19,4 +20,9 @@ export async function checkout(input: {
     return request<{ order: { id: string } }>("POST", "/orders", input, {
         "Idempotency-Key": idempotencyKey,
     });
+}
+
+export async function fetchOrders(): Promise<Order[]> {
+    const payload = await request<{ orders: Order[] }>("GET", "/orders");
+    return payload.orders;
 }

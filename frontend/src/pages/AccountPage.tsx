@@ -1,13 +1,32 @@
-import React from "react";
-import { User, LogOut, Package, Shield, ExternalLink, QrCode } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { User, LogOut, Package, Shield, ExternalLink, QrCode, Clock, CheckCircle2, Truck, AlertCircle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { useNavigate } from "react-router-dom";
+import { fetchOrders } from "../api";
+import type { Order } from "../types";
+import { cn } from "../utils/cn";
 
 const AccountPage: React.FC = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
+    const [orders, setOrders] = useState<Order[]>([]);
+    const [isLoadingOrders, setIsLoadingOrders] = useState(true);
+
+    useEffect(() => {
+        const load = async () => {
+            try {
+                const data = await fetchOrders();
+                setOrders(data);
+            } catch (err) {
+                console.error("Failed to load orders", err);
+            } finally {
+                setIsLoadingOrders(false);
+            }
+        };
+        load();
+    }, []);
 
     if (!user) {
         navigate("/login");
@@ -17,6 +36,16 @@ const AccountPage: React.FC = () => {
     const handleLogout = () => {
         logout();
         navigate("/");
+    };
+
+    const getStatusIcon = (status: string) => {
+        switch (status.toLowerCase()) {
+            case "confirmed": return <CheckCircle2 size={16} className="text-emerald-500" />;
+            case "processing": return <Clock size={16} className="text-amber-500" />;
+            case "shipped": return <Truck size={16} className="text-blue-500" />;
+            case "delivered": return <CheckCircle2 size={16} className="text-emerald-500" />;
+            default: return <AlertCircle size={16} className="text-slate-400" />;
+        }
     };
 
     const sections = [
@@ -105,15 +134,49 @@ const AccountPage: React.FC = () => {
                         </div>
                         <h3 className="text-lg font-bold">Recent Orders</h3>
                     </div>
-                    <Button variant="ghost" size="sm" className="text-brand font-bold h-auto py-0 px-2">View All</Button>
+                    {orders.length > 0 && <Button variant="ghost" size="sm" className="text-brand font-bold h-auto py-0 px-2">View All</Button>}
                 </div>
 
-                <div className="flex flex-col items-center justify-center py-12 text-center space-y-4 border-2 border-dashed border-line rounded-3xl bg-surface-50">
-                    <p className="text-sm text-slate-400">You haven't placed any orders yet.</p>
-                    <Button variant="outline" size="sm" onClick={() => navigate("/products")} className="rounded-xl">
-                        Browse Products
-                    </Button>
-                </div>
+                {isLoadingOrders ? (
+                    <div className="py-12 flex flex-col items-center justify-center space-y-4">
+                        <div className="animate-spin w-8 h-8 border-4 border-brand border-t-transparent rounded-full" />
+                        <p className="text-slate-400 text-sm">Getting your orders...</p>
+                    </div>
+                ) : orders.length > 0 ? (
+                    <div className="divide-y divide-line">
+                        {orders.map((order) => (
+                            <div key={order.id} className="py-6 first:pt-0 last:pb-0 flex flex-col sm:flex-row items-center justify-between gap-6">
+                                <div className="space-y-1 text-center sm:text-left">
+                                    <div className="flex items-center gap-2 justify-center sm:justify-start">
+                                        <span className="font-bold text-slate-900">#{order.id.slice(0, 8).toUpperCase()}</span>
+                                        <Badge variant="secondary" className="gap-1.5 py-0.5 px-2 rounded-lg text-[10px] uppercase tracking-wider">
+                                            {getStatusIcon(order.status)}
+                                            {order.status}
+                                        </Badge>
+                                    </div>
+                                    <div className="text-xs text-slate-400">
+                                        {new Date(order.createdAt).toLocaleDateString()} at {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-8">
+                                    <div className="text-right">
+                                        <div className="text-sm font-bold text-slate-900">${order.total.toFixed(2)}</div>
+                                        <div className="text-[10px] text-slate-400 uppercase tracking-widest font-medium">{order.itemCount} items</div>
+                                    </div>
+                                    <Button variant="outline" size="sm" className="rounded-xl h-9 px-4">Details</Button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="flex flex-col items-center justify-center py-12 text-center space-y-4 border-2 border-dashed border-line rounded-3xl bg-surface-50">
+                        <p className="text-sm text-slate-400">You haven't placed any orders yet.</p>
+                        <Button variant="outline" size="sm" onClick={() => navigate("/products")} className="rounded-xl">
+                            Browse Products
+                        </Button>
+                    </div>
+                )}
             </div>
         </div>
     );

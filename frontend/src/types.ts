@@ -83,3 +83,11 @@ export interface InteractionHistoryMessage {
   };
   timestamp: string;
 }
+
+export interface Order {
+  id: string;
+  status: string;
+  total: number;
+  itemCount: number;
+  createdAt: string;
+}
