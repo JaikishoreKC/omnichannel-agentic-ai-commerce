@@ -16,8 +16,8 @@ const HomePage: React.FC = () => {
     useEffect(() => {
         const load = async () => {
             try {
-                const data = await fetchProducts();
-                setProducts(data.slice(0, 4));
+                const data = await fetchProducts({ limit: 4 });
+                setProducts(data.products);
             } finally {
                 setIsLoading(false);
             }

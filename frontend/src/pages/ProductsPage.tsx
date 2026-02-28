@@ -12,42 +12,46 @@ import { cn } from "../utils/cn";
 const ProductsPage: React.FC = () => {
     const [searchParams, setSearchParams] = useSearchParams();
     const [products, setProducts] = useState<Product[]>([]);
+    const [pagination, setPagination] = useState({ page: 1, total: 0, pages: 1 });
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
     const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
-    const categories = ["All", "Running", "Athleisure", "Accessories"];
+    const categories = ["All", "Shoes", "Clothing", "Accessories", "Electronics", "Home"];
     const activeCategory = searchParams.get("category") || "All";
+    const currentPage = parseInt(searchParams.get("page") || "1", 10);
 
     useEffect(() => {
         const load = async () => {
             try {
                 setIsLoading(true);
-                const data = await fetchProducts();
-                setProducts(data);
+                const data = await fetchProducts({
+                    category: activeCategory,
+                    query: searchQuery,
+                    page: currentPage,
+                    limit: 12
+                });
+                setProducts(data.products);
+                setPagination(data.pagination);
             } finally {
                 setIsLoading(false);
             }
         };
         load();
-    }, []);
+    }, [activeCategory, searchQuery, currentPage]);
 
-    const filteredProducts = useMemo(() => {
-        return products.filter((p) => {
-            const matchesCategory = activeCategory === "All" || p.category.toLowerCase() === activeCategory.toLowerCase();
-            const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                p.description.toLowerCase().includes(searchQuery.toLowerCase());
-            return matchesCategory && matchesSearch;
-        });
-    }, [products, activeCategory, searchQuery]);
+    const setPage = (page: number) => {
+        const params = new URLSearchParams(searchParams);
+        params.set("page", page.toString());
+        setSearchParams(params);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    };
 
     const toggleCategory = (cat: string) => {
-        const params = new URLSearchParams(searchParams);
-        if (cat === "All") {
-            params.delete("category");
-        } else {
-            params.set("category", cat.toLowerCase());
-        }
+        const params = new URLSearchParams(); // Reset all filters when changing category basically, or just category
+        if (cat !== "All") params.set("category", cat.toLowerCase());
+        if (searchQuery) params.set("q", searchQuery);
+        params.set("page", "1");
         setSearchParams(params);
     };
 
@@ -57,7 +61,7 @@ const ProductsPage: React.FC = () => {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div>
                     <h1 className="text-4xl font-bold mb-2">Explore <span className="text-brand">Products</span></h1>
-                    <p className="text-slate-500">{filteredProducts.length} items found</p>
+                    <p className="text-slate-500">{pagination.total} items found</p>
                 </div>
 
                 <div className="flex items-center gap-2 max-w-md w-full">
@@ -124,8 +128,8 @@ const ProductsPage: React.FC = () => {
                             <Skeleton className="h-4 w-1/2" />
                         </div>
                     ))
-                ) : filteredProducts.length > 0 ? (
-                    filteredProducts.map((p) => (
+                ) : products.length > 0 ? (
+                    products.map((p) => (
                         <ProductCard key={p.id} product={p} />
                     ))
                 ) : (
@@ -143,6 +147,45 @@ const ProductsPage: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {/* Pagination */}
+            {pagination.pages > 1 && (
+                <div className="flex items-center justify-center gap-2 pt-8">
+                    <Button
+                        variant="ghost"
+                        disabled={pagination.page <= 1}
+                        onClick={() => setPage(pagination.page - 1)}
+                        className="rounded-xl px-4"
+                    >
+                        Previous
+                    </Button>
+
+                    <div className="flex items-center gap-1">
+                        {Array.from({ length: pagination.pages }, (_, i) => i + 1).map((p) => (
+                            <Button
+                                key={p}
+                                variant={pagination.page === p ? "primary" : "ghost"}
+                                onClick={() => setPage(p)}
+                                className={cn(
+                                    "w-10 h-10 p-0 rounded-xl transition-all",
+                                    pagination.page === p ? "shadow-md scale-105" : "text-slate-600 hover:bg-surface-100"
+                                )}
+                            >
+                                {p}
+                            </Button>
+                        ))}
+                    </div>
+
+                    <Button
+                        variant="ghost"
+                        disabled={pagination.page >= pagination.pages}
+                        onClick={() => setPage(pagination.page + 1)}
+                        className="rounded-xl px-4"
+                    >
+                        Next
+                    </Button>
+                </div>
+            )}
         </div>
     );
 };

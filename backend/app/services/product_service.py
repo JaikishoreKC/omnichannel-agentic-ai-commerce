@@ -45,7 +45,7 @@ class ProductService:
             status = str(item.get("status", "active")).strip().lower()
             if status not in {"active"}:
                 return False
-            if normalized_category and str(item["category"]).lower() != normalized_category:
+            if normalized_category and normalized_category != "all" and str(item["category"]).lower() != normalized_category:
                 return False
             if normalized_brand and str(item.get("brand", "")).lower() != normalized_brand:
                 return False
