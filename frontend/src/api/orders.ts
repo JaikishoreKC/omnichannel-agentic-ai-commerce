@@ -1,5 +1,5 @@
 import { request } from "./client";
-import type { Order } from "../types";
+import type { Order, OrderDetail } from "../types";
 
 export async function checkout(input: {
     shippingAddress: {
@@ -25,4 +25,8 @@ export async function checkout(input: {
 export async function fetchOrders(): Promise<Order[]> {
     const payload = await request<{ orders: Order[] }>("GET", "/orders");
     return payload.orders;
+}
+
+export async function fetchOrderById(id: string): Promise<OrderDetail> {
+    return request<OrderDetail>("GET", `/orders/${id}`);
 }

@@ -91,3 +91,49 @@ export interface Order {
   itemCount: number;
   createdAt: string;
 }
+
+export interface TimelineEvent {
+  status: string;
+  timestamp: string;
+  note?: string;
+}
+
+export interface OrderItem {
+  productId: string;
+  variantId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  image: string;
+}
+
+export interface OrderDetail extends Order {
+  userId: string;
+  items: OrderItem[];
+  subtotal: number;
+  tax: number;
+  shipping: number;
+  discount: number;
+  shippingAddress: {
+    name: string;
+    line1: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  };
+  payment: {
+    method: string;
+    transactionId?: string;
+    status: string;
+  };
+  timeline: TimelineEvent[];
+  tracking: {
+    carrier?: string;
+    trackingNumber?: string;
+    status: string;
+    updates: any[];
+  };
+  estimatedDelivery?: string;
+  updatedAt: string;
+}

@@ -164,7 +164,14 @@ const AccountPage: React.FC = () => {
                                         <div className="text-sm font-bold text-slate-900">${order.total.toFixed(2)}</div>
                                         <div className="text-[10px] text-slate-400 uppercase tracking-widest font-medium">{order.itemCount} items</div>
                                     </div>
-                                    <Button variant="outline" size="sm" className="rounded-xl h-9 px-4">Details</Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="rounded-xl h-9 px-4"
+                                        onClick={() => navigate(`/account/orders/${order.id}`)}
+                                    >
+                                        Details
+                                    </Button>
                                 </div>
                             </div>
                         ))}

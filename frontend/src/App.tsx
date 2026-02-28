@@ -10,6 +10,7 @@ import { ProductDetailPage } from "./pages/ProductDetailPage";
 import { CartPage } from "./pages/CartPage";
 import { AuthPage } from "./pages/AuthPage";
 import { AccountPage } from "./pages/AccountPage";
+import OrderDetailPage from "./pages/OrderDetailPage";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { AdminLoginPage } from "./pages/AdminLoginPage";
 
@@ -48,6 +49,7 @@ const App: React.FC = () => {
               <Route path="/login" element={<AuthPage />} />
               <Route path="/register" element={<AuthPage />} />
               <Route path="/account" element={<AccountPage />} />
+              <Route path="/account/orders/:orderId" element={<OrderDetailPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Shell>
