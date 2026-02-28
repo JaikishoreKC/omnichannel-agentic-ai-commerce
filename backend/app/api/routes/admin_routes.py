@@ -8,8 +8,11 @@ from app.api.deps import require_admin
 from app.container import (
     admin_activity_service,
     admin_service,
+    auth_repository,
     category_service,
     inventory_service,
+    order_repository,
+    product_repository,
     product_service,
     support_service,
     voice_recovery_service,
@@ -30,6 +33,36 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 @router.get("/stats")
 def stats(_: dict[str, object] = Depends(require_admin)) -> dict[str, object]:
     return admin_service.stats()
+
+
+@router.get("/orders")
+def list_orders(
+    limit: int = Query(default=20, ge=1, le=200),
+    _: dict[str, object] = Depends(require_admin),
+) -> dict[str, Any]:
+    """Return most recent orders for the admin dashboard."""
+    orders = order_repository.list_all()
+    return {"orders": orders[:limit]}
+
+
+@router.get("/products")
+def list_products(
+    limit: int = Query(default=50, ge=1, le=200),
+    _: dict[str, object] = Depends(require_admin),
+) -> dict[str, Any]:
+    """Return all products for the admin dashboard."""
+    products = list(product_repository.list_all().values()) if hasattr(product_repository.list_all(), 'values') else product_repository.list_all()
+    return {"products": products[:limit]}
+
+
+@router.get("/users")
+def list_users(
+    limit: int = Query(default=50, ge=1, le=200),
+    _: dict[str, object] = Depends(require_admin),
+) -> dict[str, Any]:
+    """Return all registered users for the admin dashboard."""
+    users = auth_repository.list_all_users(limit=limit)
+    return {"users": users}
 
 
 @router.get("/categories")

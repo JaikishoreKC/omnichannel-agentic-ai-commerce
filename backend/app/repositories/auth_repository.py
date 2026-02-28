@@ -48,6 +48,22 @@ class AuthRepository:
             return deepcopy(persisted)
         return None
 
+    def list_all_users(self, limit: int = 50) -> list[dict[str, Any]]:
+        collection = self._mongo_users_collection()
+        if collection is None:
+            return []
+        rows = list(collection.find({}).sort("createdAt", -1).limit(limit))
+        users: list[dict[str, Any]] = []
+        for row in rows:
+            row.pop("_id", None)
+            row.pop("userId", None)
+            # Do not return hashed passwords to the API layer
+            row.pop("passwordHash", None)
+            if isinstance(row, dict):
+                users.append(row)
+        return users
+
+
     def set_refresh_token(self, token: str, payload: dict[str, Any]) -> None:
         self._write_refresh_to_redis(token, payload)
         self._write_refresh_to_mongo(token, payload)
